@@ -1,50 +1,75 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Dimensions,
-  TouchableOpacity,
-} from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
-import { Cabin_700Bold, Cabin_400Regular } from '@expo-google-fonts/cabin';
+import { StatusBar } from 'expo-status-bar';
+import React, { useState } from 'react';
+import {
+  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const H_PAD = 22;
+const CARD_H_PAD = 14;
+const CELL_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_H_PAD * 2) / 7;
+const BAR_WIDTH = SCREEN_WIDTH - H_PAD * 2;
+
 const ORANGE = '#F2A65A';
 const GRAY = '#8E8E93';
-const DIM = 'rgba(142,142,147,0.4)';
+const DIM = 'rgba(142,142,147,0.35)';
 
-// ─── Calendar data for Feb 2026 ────────────────────────────────────────────────
-// Feb 1 2026 = Sunday → perfect 4×7 grid, no overflow days
-
-const TOTAL_DAYS = 28;
-const ENTRY_DAYS = new Set([4, 6, 10, 14, 18, 22]);
-const ENTRY_COUNT = ENTRY_DAYS.size;
-
+const YEAR = 2026;
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 const DAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-const WEEKS: number[][] = [
-  [1, 2, 3, 4, 5, 6, 7],
-  [8, 9, 10, 11, 12, 13, 14],
-  [15, 16, 17, 18, 19, 20, 21],
-  [22, 23, 24, 25, 26, 27, 28],
-];
+// Known journal entries per month (0-indexed). Add more here as the user journals.
+const ENTRIES_BY_MONTH: Record<number, Set<number>> = {
+  1: new Set([4, 6, 10, 14, 18, 22]), // February
+};
 
-// ─── Month navigation state (static for now) ──────────────────────────────────
+// ─── Date helpers ──────────────────────────────────────────────────────────────
 
-type MonthInfo = { label: string; year: number; month: number };
+/** Number of days in a given month (0-indexed). */
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
 
-const MONTHS: MonthInfo[] = [
-  { label: 'January 2026', year: 2026, month: 0 },
-  { label: 'February 2026', year: 2026, month: 1 },
-  { label: 'March 2026', year: 2026, month: 2 },
-];
+/** 0 = Sunday … 6 = Saturday for the 1st of the month. */
+function firstWeekdayOfMonth(year: number, month: number): number {
+  return new Date(year, month, 1).getDay();
+}
+
+/**
+ * Build a calendar grid for the given month.
+ * Returns rows of 7 cells; cells are `null` for padding before/after the month.
+ */
+function buildCalendarWeeks(year: number, month: number): (number | null)[][] {
+  const total = daysInMonth(year, month);
+  const leadingBlanks = firstWeekdayOfMonth(year, month);
+
+  const cells: (number | null)[] = [
+    ...Array<null>(leadingBlanks).fill(null),
+    ...Array.from({ length: total }, (_, i) => i + 1),
+  ];
+
+  // Pad trailing cells to complete the last row
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const weeks: (number | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    weeks.push(cells.slice(i, i + 7));
+  }
+  return weeks;
+}
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -52,38 +77,46 @@ function StarIndicator() {
   return <Text style={styles.starText}>✦</Text>;
 }
 
-function DayCell({ day, colIndex }: { day: number; colIndex: number }) {
+function DayCell({
+  day,
+  colIndex,
+  entryDays,
+}: {
+  day: number | null;
+  colIndex: number;
+  entryDays: Set<number>;
+}) {
   const isSunday = colIndex === 0;
-  const hasEntry = ENTRY_DAYS.has(day);
+  const hasEntry = day !== null && entryDays.has(day);
+  const isEmpty = day === null;
 
   return (
     <View style={styles.dayCell}>
-      <View style={styles.dayCellInner}>
-        <Text style={[styles.dayNumber, isSunday && styles.sundayNumber]}>{day}</Text>
-        {hasEntry ? <StarIndicator /> : <View style={styles.starPlaceholder} />}
-      </View>
+      {!isEmpty && (
+        <View style={styles.dayCellInner}>
+          <Text style={[styles.dayNumber, isSunday && styles.sundayNumber]}>
+            {day}
+          </Text>
+          {hasEntry ? <StarIndicator /> : <View style={styles.starPlaceholder} />}
+        </View>
+      )}
     </View>
   );
 }
 
 // ─── Progress bar ──────────────────────────────────────────────────────────────
 
-const BAR_WIDTH = SCREEN_WIDTH - H_PAD * 2;
-
-function ProgressBar() {
-  const fillRatio = ENTRY_COUNT / TOTAL_DAYS;
-  const fillWidth = fillRatio * BAR_WIDTH;
+function ProgressBar({ entryCount, totalDays }: { entryCount: number; totalDays: number }) {
+  const fillWidth = totalDays > 0 ? (entryCount / totalDays) * BAR_WIDTH : 0;
 
   return (
     <View style={styles.progressSection}>
       <View style={styles.progressTrack}>
-        {/* Full-width ghost bar */}
         <View style={styles.progressGhost} />
-        {/* Filled portion */}
         <View style={[styles.progressFill, { width: fillWidth }]} />
       </View>
       <Text style={styles.entriesLabel}>
-        {ENTRY_COUNT}/{TOTAL_DAYS} monthly entries
+        {entryCount}/{totalDays} monthly entries
       </Text>
     </View>
   );
@@ -92,20 +125,26 @@ function ProgressBar() {
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function CalendarScreen() {
-  const [monthIndex, setMonthIndex] = useState(1); // default to February 2026
+  // Default to the current month, clamped to the app's supported year (2026)
+  const currentMonth = new Date().getMonth(); // 0 = Jan … 11 = Dec
+  const [monthIndex, setMonthIndex] = useState(currentMonth);
 
   const [fontsLoaded] = useFonts({
     'Cabin-Bold': Cabin_700Bold,
     'Cabin-Regular': Cabin_400Regular,
   });
 
-  if (!fontsLoaded) {
-    return <View style={styles.container} />;
-  }
+  if (!fontsLoaded) return <View style={styles.container} />;
 
-  const currentMonth = MONTHS[monthIndex];
-  const canGoPrev = monthIndex > 0;
-  const canGoNext = monthIndex < MONTHS.length - 1;
+  // Wrap-around navigation: Dec → Jan, Jan → Dec
+  const goBack = () => setMonthIndex((i) => (i === 0 ? 11 : i - 1));
+  const goForward = () => setMonthIndex((i) => (i === 11 ? 0 : i + 1));
+
+  const totalDays = daysInMonth(YEAR, monthIndex);
+  const entryDays = ENTRIES_BY_MONTH[monthIndex] ?? new Set<number>();
+  const entryCount = entryDays.size;
+  const weeks = buildCalendarWeeks(YEAR, monthIndex);
+  const monthLabel = `${MONTH_NAMES[monthIndex]} ${YEAR}`;
 
   return (
     <View style={styles.container}>
@@ -117,9 +156,9 @@ export default function CalendarScreen() {
           <Text style={styles.pageTitle}>Your Progress</Text>
         </View>
 
-        {/* ── Progress bar + count ── */}
+        {/* ── Progress bar ── */}
         <View style={styles.progressWrapper}>
-          <ProgressBar />
+          <ProgressBar entryCount={entryCount} totalDays={totalDays} />
         </View>
 
         {/* ── Calendar card ── */}
@@ -127,30 +166,14 @@ export default function CalendarScreen() {
 
           {/* Month navigation */}
           <View style={styles.monthNav}>
-            <TouchableOpacity
-              style={styles.navBtn}
-              onPress={() => canGoPrev && setMonthIndex((i) => i - 1)}
-              activeOpacity={canGoPrev ? 0.6 : 1}
-            >
-              <Ionicons
-                name="chevron-back"
-                size={22}
-                color={canGoPrev ? '#FFFFFF' : 'rgba(255,255,255,0.25)'}
-              />
+            <TouchableOpacity style={styles.navBtn} onPress={goBack} activeOpacity={0.6}>
+              <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
             </TouchableOpacity>
 
-            <Text style={styles.monthLabel}>{currentMonth.label}</Text>
+            <Text style={styles.monthLabel}>{monthLabel}</Text>
 
-            <TouchableOpacity
-              style={styles.navBtn}
-              onPress={() => canGoNext && setMonthIndex((i) => i + 1)}
-              activeOpacity={canGoNext ? 0.6 : 1}
-            >
-              <Ionicons
-                name="chevron-forward"
-                size={22}
-                color={canGoNext ? '#FFFFFF' : 'rgba(255,255,255,0.25)'}
-              />
+            <TouchableOpacity style={styles.navBtn} onPress={goForward} activeOpacity={0.6}>
+              <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
 
@@ -165,15 +188,20 @@ export default function CalendarScreen() {
             ))}
           </View>
 
-          {/* Thin separator */}
+          {/* Separator */}
           <View style={styles.divider} />
 
-          {/* Date grid */}
+          {/* Date grid — rebuilt every time monthIndex changes */}
           <View style={styles.dateGrid}>
-            {WEEKS.map((week, wi) => (
+            {weeks.map((week, wi) => (
               <View key={wi} style={styles.weekRow}>
                 {week.map((day, di) => (
-                  <DayCell key={day} day={day} colIndex={di} />
+                  <DayCell
+                    key={di}
+                    day={day}
+                    colIndex={di}
+                    entryDays={entryDays}
+                  />
                 ))}
               </View>
             ))}
@@ -186,9 +214,6 @@ export default function CalendarScreen() {
 }
 
 // ─── Styles ────────────────────────────────────────────────────────────────────
-
-const CARD_H_PAD = 14; // must match calendarCard.paddingHorizontal
-const CELL_SIZE = (SCREEN_WIDTH - H_PAD * 2 - CARD_H_PAD * 2) / 7;
 
 const styles = StyleSheet.create({
   container: {
@@ -247,7 +272,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.07)',
-    paddingHorizontal: 14,
+    paddingHorizontal: CARD_H_PAD,
     paddingTop: 20,
     paddingBottom: 18,
   },
@@ -322,11 +347,14 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
   },
+  dayNumberNoEntry: {
+    fontFamily: 'Cabin-Regular',
+    color: '#FFFFFF',
+    fontSize: 17,
+    lineHeight: 22,
+  },
   sundayNumber: {
     color: ORANGE,
-  },
-  dimNumber: {
-    color: DIM,
   },
 
   // ── Star indicator ──
