@@ -2,10 +2,11 @@ import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  FlatList,
   Image,
-  ScrollView,
+  ListRenderItem,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,63 +16,134 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DOG_IMAGE_URL =
-  'https://www.figma.com/api/mcp/asset/0e61c1c3-5267-453a-b35b-643cfdf8df6a';
+const DOG_IMAGE = require('@/assets/images/border_collie_img.jpeg');
 
 const ORANGE = '#F5A855';
 const GRAY_DOT = 'rgba(180, 176, 176, 0.6)';
 const GRAY_LINE = 'rgba(150, 146, 146, 0.35)';
-const CARD_HEIGHT = 130;
-const TIMELINE_DOT_SIZE = 15;
-const TIMELINE_COL_WIDTH = 50;
 
-// How far from the top the title starts before the user scrolls
-const INITIAL_TOP_PADDING = 210;
+const YEAR = 2026;
+const SHORT_MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
 
-// ─── Data ─────────────────────────────────────────────────────────────────────
+// Card heights
+const REGULAR_CARD_H = 130;
+const TODAY_CARD_H = 200;
+
+// Row height building blocks (kept in sync with StyleSheet values below)
+const TIMELINE_TOP_PAD = 10;
+const DATE_LABEL_H = 52;   // lineHeight for fontSize 44
+const DATE_MARGIN_B = 10;
+const ROW_BOTTOM_PAD = 14;
+const TODAY_ROW_EXTRA = 34; // additional bottom breathing room for today
+
+const REGULAR_DAY_H =
+  TIMELINE_TOP_PAD + DATE_LABEL_H + DATE_MARGIN_B + REGULAR_CARD_H + ROW_BOTTOM_PAD;
+// = 10 + 52 + 10 + 130 + 14 = 216
+
+const TODAY_DAY_H =
+  TIMELINE_TOP_PAD + DATE_LABEL_H + DATE_MARGIN_B + TODAY_CARD_H + ROW_BOTTOM_PAD + TODAY_ROW_EXTRA;
+// = 10 + 52 + 10 + 200 + 14 + 34 = 320
+
+const HEADER_H = 62;              // "Your Timeline" row
+const INITIAL_CONTENT_PAD = 210;  // starts content lower on first load
+
+// ─── Entry data ───────────────────────────────────────────────────────────────
 
 type EntryType =
-  | { type: 'image'; title: string; imageUrl: string }
+  | { type: 'image'; title: string; imageSource: ReturnType<typeof require> }
   | { type: 'text'; text: string }
   | { type: 'none' };
 
-interface DayData {
-  date: string;
+// month (0-indexed) → day → entry
+const ENTRY_DATA: Record<number, Record<number, EntryType>> = {
+  1: {
+    4: { type: 'image', title: 'Timber', imageSource: DOG_IMAGE },
+    6: { type: 'text', text: '"Birthday!"' },
+    10: { type: 'text', text: 'Morning hike' },
+    14: { type: 'text', text: "Valentine's Day" },
+    18: { type: 'text', text: 'Team meeting' },
+    22: { type: 'text', text: 'Creative session' },
+  },
+};
+
+function getEntry(month: number, day: number): EntryType {
+  return ENTRY_DATA[month]?.[day] ?? { type: 'none' };
+}
+
+// ─── Timeline item types ──────────────────────────────────────────────────────
+
+interface HeaderItem {
+  type: 'header';
+  key: string;
+}
+
+interface DayItem {
+  type: 'day';
+  key: string;
+  dateLabel: string;
+  month: number;
+  dayNum: number;
+  isToday: boolean;
+  hasEntry: boolean;
   entry: EntryType;
 }
 
-const FEBRUARY_DATA: DayData[] = [
-  { date: 'Feb 1', entry: { type: 'none' } },
-  { date: 'Feb 2', entry: { type: 'none' } },
-  { date: 'Feb 3', entry: { type: 'none' } },
-  { date: 'Feb 4', entry: { type: 'image', title: 'Timber', imageUrl: DOG_IMAGE_URL } },
-  { date: 'Feb 5', entry: { type: 'none' } },
-  { date: 'Feb 6', entry: { type: 'text', text: '"Birthday!"' } },
-  { date: 'Feb 7', entry: { type: 'none' } },
-  { date: 'Feb 8', entry: { type: 'none' } },
-  { date: 'Feb 9', entry: { type: 'none' } },
-  { date: 'Feb 10', entry: { type: 'text', text: 'Morning hike' } },
-  { date: 'Feb 11', entry: { type: 'none' } },
-  { date: 'Feb 12', entry: { type: 'none' } },
-  { date: 'Feb 13', entry: { type: 'none' } },
-  { date: 'Feb 14', entry: { type: 'text', text: "Valentine's Day" } },
-  { date: 'Feb 15', entry: { type: 'none' } },
-  { date: 'Feb 16', entry: { type: 'none' } },
-  { date: 'Feb 17', entry: { type: 'none' } },
-  { date: 'Feb 18', entry: { type: 'text', text: 'Team meeting' } },
-  { date: 'Feb 19', entry: { type: 'none' } },
-  { date: 'Feb 20', entry: { type: 'none' } },
-  { date: 'Feb 21', entry: { type: 'none' } },
-  { date: 'Feb 22', entry: { type: 'text', text: 'Creative session' } },
-  { date: 'Feb 23', entry: { type: 'none' } },
-  { date: 'Feb 24', entry: { type: 'none' } },
-  { date: 'Feb 25', entry: { type: 'none' } },
-  { date: 'Feb 26', entry: { type: 'none' } },
-  { date: 'Feb 27', entry: { type: 'none' } },
-  { date: 'Feb 28', entry: { type: 'none' } },
-];
+type TimelineItem = HeaderItem | DayItem;
 
-// ─── Entry icon picker overlay ─────────────────────────────────────────────────
+// ─── Build full-year data (module-level, computed once on app start) ──────────
+
+const _now = new Date();
+const _todayYear = _now.getFullYear();
+const _todayMonth = _now.getMonth();
+const _todayDay = _now.getDate();
+
+function buildYearTimeline(): TimelineItem[] {
+  const items: TimelineItem[] = [{ type: 'header', key: 'header' }];
+
+  for (let month = 0; month < 12; month++) {
+    const daysInMonth = new Date(YEAR, month + 1, 0).getDate();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const isToday =
+        _todayYear === YEAR && _todayMonth === month && _todayDay === day;
+      const entry = isToday ? { type: 'none' as const } : getEntry(month, day);
+
+      items.push({
+        type: 'day',
+        key: `${month}-${day}`,
+        dateLabel: `${SHORT_MONTHS[month]} ${day}`,
+        month,
+        dayNum: day,
+        isToday,
+        hasEntry: !isToday && entry.type !== 'none',
+        entry,
+      });
+    }
+  }
+
+  return items;
+}
+
+const ALL_ITEMS = buildYearTimeline();
+const TODAY_INDEX = ALL_ITEMS.findIndex(
+  (item) => item.type === 'day' && (item as DayItem).isToday,
+);
+
+// Precompute cumulative y-offsets for getItemLayout — O(1) layout lookups
+const ITEM_OFFSETS: number[] = [];
+{
+  let y = INITIAL_CONTENT_PAD;
+  for (const item of ALL_ITEMS) {
+    ITEM_OFFSETS.push(y);
+    if (item.type === 'header') y += HEADER_H;
+    else if ((item as DayItem).isToday) y += TODAY_DAY_H;
+    else y += REGULAR_DAY_H;
+  }
+}
+
+// ─── Entry icon overlay ───────────────────────────────────────────────────────
 
 const ENTRY_ICONS: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
   { icon: 'camera-outline', label: 'Photo' },
@@ -80,20 +152,16 @@ const ENTRY_ICONS: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
   { icon: 'videocam-outline', label: 'Video' },
 ];
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function OverlayCard({ onClose }: { onClose: () => void }) {
   return (
-    <TouchableOpacity
-      style={styles.overlayCard}
-      activeOpacity={1}
-      onPress={onClose}
-    >
+    <TouchableOpacity style={styles.overlayCard} activeOpacity={1} onPress={onClose}>
       {ENTRY_ICONS.map(({ icon, label }) => (
         <TouchableOpacity
           key={icon}
           style={styles.overlayIconButton}
-          onPress={() => {/* future: navigate to entry creation */}}
+          onPress={() => {/* TODO: navigate to entry creation */}}
         >
           <Ionicons name={icon} size={34} color="#1C1A1A" />
           <Text style={styles.overlayIconLabel}>{label}</Text>
@@ -104,19 +172,31 @@ function OverlayCard({ onClose }: { onClose: () => void }) {
 }
 
 function DayCard({
-  day,
+  item,
   isActive,
   onPress,
 }: {
-  day: DayData;
+  item: DayItem;
   isActive: boolean;
   onPress: () => void;
 }) {
   if (isActive) {
-    return <OverlayCard onClose={onPress} />;
+    // Today's overlay is taller to match the card
+    return (
+      <OverlayCard onClose={onPress} />
+    );
   }
 
-  const { entry } = day;
+  if (item.isToday) {
+    return (
+      <TouchableOpacity style={styles.todayCard} activeOpacity={0.85} onPress={onPress}>
+        <Ionicons name="add-circle-outline" size={40} color="rgba(255,255,255,0.7)" />
+        <Text style={styles.createMemoryText}>Create a memory</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  const { entry } = item;
 
   if (entry.type === 'none') {
     return (
@@ -129,7 +209,7 @@ function DayCard({
   if (entry.type === 'image') {
     return (
       <TouchableOpacity style={styles.imageCard} activeOpacity={0.85} onPress={onPress}>
-        <Image source={{ uri: entry.imageUrl }} style={styles.cardImage} resizeMode="cover" />
+        <Image source={entry.imageSource} style={styles.cardImage} resizeMode="cover" />
         <View style={styles.imageContentOverlay}>
           <Ionicons name="camera-outline" size={22} color="white" />
           <Text style={styles.imageTitleText}>{entry.title}</Text>
@@ -152,22 +232,21 @@ function DayCard({
 }
 
 function DayRow({
-  day,
+  item,
   isLast,
   isActive,
   onPress,
 }: {
-  day: DayData;
+  item: DayItem;
   isLast: boolean;
   isActive: boolean;
   onPress: () => void;
 }) {
-  const hasEntry = day.entry.type !== 'none';
-  const dotColor = hasEntry ? ORANGE : GRAY_DOT;
-  const lineColor = hasEntry ? ORANGE : GRAY_LINE;
+  const dotColor = item.hasEntry || item.isToday ? ORANGE : GRAY_DOT;
+  const lineColor = item.hasEntry || item.isToday ? ORANGE : GRAY_LINE;
 
   return (
-    <View style={styles.dayRow}>
+    <View style={[styles.dayRow, item.isToday && styles.todayRow]}>
       {/* Left timeline rail */}
       <View style={styles.timelineColumn}>
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
@@ -175,61 +254,107 @@ function DayRow({
       </View>
 
       {/* Right content */}
-      <View style={styles.contentColumn}>
-        <Text style={styles.dateLabel}>{day.date}</Text>
-        <DayCard day={day} isActive={isActive} onPress={onPress} />
+      <View style={[styles.contentColumn, item.isToday && styles.todayContentColumn]}>
+        <Text style={styles.dateLabel}>{item.dateLabel}</Text>
+        <DayCard item={item} isActive={isActive} onPress={onPress} />
       </View>
     </View>
   );
 }
 
-// ─── Screen ────────────────────────────────────────────────────────────────────
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function TimelineScreen() {
+  const flatListRef = useRef<FlatList<TimelineItem>>(null);
   const [activeCard, setActiveCard] = useState<string | null>(null);
-
   const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold });
 
-  if (!fontsLoaded) {
-    return <View style={styles.container} />;
-  }
+  // Scroll to today after fonts (and thus the FlatList) are ready
+  useEffect(() => {
+    if (!fontsLoaded || TODAY_INDEX < 0) return;
+    const timer = setTimeout(() => {
+      flatListRef.current?.scrollToIndex({
+        index: TODAY_INDEX,
+        viewPosition: 0.08, // today appears near the top of the viewport
+        animated: false,
+      });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [fontsLoaded]);
 
-  const handleCardPress = (date: string) => {
-    setActiveCard((prev) => (prev === date ? null : date));
-  };
+  const handleCardPress = useCallback((key: string) => {
+    setActiveCard((prev) => (prev === key ? null : key));
+  }, []);
+
+  const getItemLayout = useCallback(
+    (_: unknown, index: number): { length: number; offset: number; index: number } => {
+      const item = ALL_ITEMS[index];
+      const length =
+        item.type === 'header'
+          ? HEADER_H
+          : (item as DayItem).isToday
+          ? TODAY_DAY_H
+          : REGULAR_DAY_H;
+      return { length, offset: ITEM_OFFSETS[index], index };
+    },
+    [],
+  );
+
+  const renderItem: ListRenderItem<TimelineItem> = useCallback(
+    ({ item, index }) => {
+      if (item.type === 'header') {
+        return (
+          <View style={styles.stickyHeader}>
+            <Text style={styles.headerTitle}>Your Timeline</Text>
+          </View>
+        );
+      }
+
+      return (
+        <DayRow
+          item={item as DayItem}
+          isLast={index === ALL_ITEMS.length - 1}
+          isActive={activeCard === item.key}
+          onPress={() => handleCardPress(item.key)}
+        />
+      );
+    },
+    [activeCard, handleCardPress],
+  );
+
+  if (!fontsLoaded) return <View style={styles.container} />;
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ScrollView
+        <FlatList
+          ref={flatListRef}
+          data={ALL_ITEMS}
+          keyExtractor={(item) => item.key}
+          renderItem={renderItem}
+          getItemLayout={getItemLayout}
           stickyHeaderIndices={[0]}
-          style={styles.scrollView}
+          extraData={activeCard}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-        >
-          {/* ── Sticky header: starts at INITIAL_TOP_PADDING, snaps to top on scroll ── */}
-          <View style={styles.stickyHeader}>
-            <Text style={styles.headerTitle}>Your Timeline</Text>
-          </View>
-
-          {/* ── Timeline days ── */}
-          {FEBRUARY_DATA.map((day, index) => (
-            <DayRow
-              key={day.date}
-              day={day}
-              isLast={index === FEBRUARY_DATA.length - 1}
-              isActive={activeCard === day.date}
-              onPress={() => handleCardPress(day.date)}
-            />
-          ))}
-        </ScrollView>
+          onScrollToIndexFailed={(info) => {
+            // Fallback: use precomputed offset directly
+            flatListRef.current?.scrollToOffset({
+              offset: Math.max(0, ITEM_OFFSETS[info.index] - 80),
+              animated: false,
+            });
+          }}
+        />
       </SafeAreaView>
     </View>
   );
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const TIMELINE_DOT_SIZE = 15;
+const TIMELINE_COL_WIDTH = 50;
 
 const styles = StyleSheet.create({
   container: {
@@ -239,22 +364,20 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  scrollView: {
-    flex: 1,
-  },
   scrollContent: {
-    paddingTop: INITIAL_TOP_PADDING,
+    paddingTop: INITIAL_CONTENT_PAD,
     paddingLeft: 14,
     paddingRight: 18,
     paddingBottom: 100,
   },
 
-  // Sticky "Your Timeline" header — background matches screen so it covers content when stuck
+  // ── Sticky header ──
   stickyHeader: {
     backgroundColor: '#0A0A2A',
     paddingHorizontal: 8,
     paddingTop: 6,
     paddingBottom: 12,
+    elevation: 10, // Android z-order fix for sticky items
   },
   headerTitle: {
     fontFamily: 'Cabin-Bold',
@@ -266,12 +389,14 @@ const styles = StyleSheet.create({
   // ── Day row ──
   dayRow: {
     flexDirection: 'row',
-    minHeight: 195,
+    paddingTop: TIMELINE_TOP_PAD,
+  },
+  todayRow: {
+    // no extra outer styles needed; inner card handles the height
   },
   timelineColumn: {
     width: TIMELINE_COL_WIDTH,
     alignItems: 'center',
-    paddingTop: 10,
   },
   dot: {
     width: TIMELINE_DOT_SIZE,
@@ -285,21 +410,42 @@ const styles = StyleSheet.create({
   },
   contentColumn: {
     flex: 1,
-    paddingBottom: 14,
+    paddingBottom: ROW_BOTTOM_PAD,
+  },
+  todayContentColumn: {
+    paddingBottom: ROW_BOTTOM_PAD + TODAY_ROW_EXTRA,
   },
   dateLabel: {
     fontFamily: 'Cabin-Bold',
     color: '#FEFEFE',
     fontSize: 44,
-    marginBottom: 10,
-    lineHeight: 52,
+    marginBottom: DATE_MARGIN_B,
+    lineHeight: DATE_LABEL_H,
   },
 
-  // ── Cards ──
+  // ── Today card (taller, with CTA) ──
+  todayCard: {
+    backgroundColor: 'rgba(245, 168, 85, 0.10)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(245, 168, 85, 0.32)',
+    borderRadius: 28,
+    height: TODAY_CARD_H,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+  },
+  createMemoryText: {
+    fontFamily: 'Cabin-Bold',
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 17,
+    letterSpacing: 0.2,
+  },
+
+  // ── Regular cards ──
   emptyCard: {
     backgroundColor: 'rgba(131, 124, 124, 0.35)',
     borderRadius: 28,
-    height: CARD_HEIGHT,
+    height: REGULAR_CARD_H,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -310,7 +456,7 @@ const styles = StyleSheet.create({
   },
   imageCard: {
     borderRadius: 28,
-    height: CARD_HEIGHT,
+    height: REGULAR_CARD_H,
     overflow: 'hidden',
   },
   cardImage: {
@@ -334,7 +480,7 @@ const styles = StyleSheet.create({
   textCard: {
     backgroundColor: 'rgba(40, 65, 129, 0.45)',
     borderRadius: 28,
-    height: CARD_HEIGHT,
+    height: REGULAR_CARD_H,
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
@@ -352,11 +498,11 @@ const styles = StyleSheet.create({
     right: 14,
   },
 
-  // ── Entry-type overlay (shown when card is tapped) ──
+  // ── Overlay (entry type picker) ──
   overlayCard: {
     backgroundColor: 'rgba(212, 207, 202, 0.92)',
     borderRadius: 28,
-    height: CARD_HEIGHT,
+    height: REGULAR_CARD_H,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-evenly',

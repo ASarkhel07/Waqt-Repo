@@ -81,23 +81,28 @@ function DayCell({
   day,
   colIndex,
   entryDays,
+  isToday,
 }: {
   day: number | null;
   colIndex: number;
   entryDays: Set<number>;
+  isToday: boolean;
 }) {
-  const isSunday = colIndex === 0;
   const hasEntry = day !== null && entryDays.has(day);
-  const isEmpty = day === null;
 
   return (
     <View style={styles.dayCell}>
-      {!isEmpty && (
+      {day !== null && (
         <View style={styles.dayCellInner}>
-          <Text style={[styles.dayNumber, isSunday && styles.sundayNumber]}>
+          <Text
+            style={[
+              styles.dayNumber,
+              hasEntry && styles.entryNumber,
+            ]}
+          >
             {day}
           </Text>
-          {hasEntry ? <StarIndicator /> : <View style={styles.starPlaceholder} />}
+          {isToday ? <StarIndicator /> : <View style={styles.starPlaceholder} />}
         </View>
       )}
     </View>
@@ -125,9 +130,14 @@ function ProgressBar({ entryCount, totalDays }: { entryCount: number; totalDays:
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function CalendarScreen() {
-  // Default to the current month, clamped to the app's supported year (2026)
-  const currentMonth = new Date().getMonth(); // 0 = Jan … 11 = Dec
-  const [monthIndex, setMonthIndex] = useState(currentMonth);
+  // Derive today once so we can highlight the current date cell
+  const today = new Date();
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth();   // 0-indexed
+  const todayDay = today.getDate();      // 1-indexed day number
+
+  // Default to the current month
+  const [monthIndex, setMonthIndex] = useState(todayMonth);
 
   const [fontsLoaded] = useFonts({
     'Cabin-Bold': Cabin_700Bold,
@@ -195,14 +205,22 @@ export default function CalendarScreen() {
           <View style={styles.dateGrid}>
             {weeks.map((week, wi) => (
               <View key={wi} style={styles.weekRow}>
-                {week.map((day, di) => (
-                  <DayCell
-                    key={di}
-                    day={day}
-                    colIndex={di}
-                    entryDays={entryDays}
-                  />
-                ))}
+                {week.map((day, di) => {
+                  const isToday =
+                    day !== null &&
+                    YEAR === todayYear &&
+                    monthIndex === todayMonth &&
+                    day === todayDay;
+                  return (
+                    <DayCell
+                      key={di}
+                      day={day}
+                      colIndex={di}
+                      entryDays={entryDays}
+                      isToday={isToday}
+                    />
+                  );
+                })}
               </View>
             ))}
           </View>
@@ -354,6 +372,9 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   sundayNumber: {
+    color: ORANGE,
+  },
+  entryNumber: {
     color: ORANGE,
   },
 
