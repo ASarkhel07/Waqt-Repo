@@ -1,5 +1,6 @@
 import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
@@ -158,6 +159,12 @@ export default function CalendarScreen() {
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['#171854', '#10103B', '#090921']}
+        start={{ x: 1, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
 
@@ -236,7 +243,7 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A2A',
+    backgroundColor: '#090921', // darkest gradient stop — shown before gradient renders
   },
   safeArea: {
     flex: 1,

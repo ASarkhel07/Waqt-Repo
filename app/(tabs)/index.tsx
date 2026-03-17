@@ -1,8 +1,9 @@
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -47,13 +48,15 @@ const TODAY_DAY_H =
   TIMELINE_TOP_PAD + DATE_LABEL_H + DATE_MARGIN_B + TODAY_CARD_H + ROW_BOTTOM_PAD + TODAY_ROW_EXTRA;
 // = 10 + 52 + 10 + 200 + 14 + 34 = 320
 
-const HEADER_H = 62;              // "Your Timeline" row
-const INITIAL_CONTENT_PAD = 210;  // starts content lower on first load
+const SCROLL_TOP_PAD = 8; // small gap between fixed header and first day
 
 // ─── Entry data ───────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ImageSource = any;
+
 type EntryType =
-  | { type: 'image'; title: string; imageSource: ReturnType<typeof require> }
+  | { type: 'image'; title: string; imageSource: ImageSource }
   | { type: 'text'; text: string }
   | { type: 'none' };
 
@@ -75,11 +78,6 @@ function getEntry(month: number, day: number): EntryType {
 
 // ─── Timeline item types ──────────────────────────────────────────────────────
 
-interface HeaderItem {
-  type: 'header';
-  key: string;
-}
-
 interface DayItem {
   type: 'day';
   key: string;
@@ -91,23 +89,24 @@ interface DayItem {
   entry: EntryType;
 }
 
-type TimelineItem = HeaderItem | DayItem;
+type TimelineItem = DayItem;
 
-// ─── Build full-year data (module-level, computed once on app start) ──────────
+// ─── Build full-year data ─────────────────────────────────────────────────────
+// Accepts today's date so it can be called fresh inside the component each mount,
+// ensuring "today" is never stale if the date changes while the app is running.
 
-const _now = new Date();
-const _todayYear = _now.getFullYear();
-const _todayMonth = _now.getMonth();
-const _todayDay = _now.getDate();
-
-function buildYearTimeline(): TimelineItem[] {
-  const items: TimelineItem[] = [{ type: 'header', key: 'header' }];
+function buildYearTimeline(
+  todayYear: number,
+  todayMonth: number,
+  todayDay: number,
+): DayItem[] {
+  const items: DayItem[] = [];
 
   for (let month = 0; month < 12; month++) {
     const daysInMonth = new Date(YEAR, month + 1, 0).getDate();
     for (let day = 1; day <= daysInMonth; day++) {
       const isToday =
-        _todayYear === YEAR && _todayMonth === month && _todayDay === day;
+        todayYear === YEAR && todayMonth === month && todayDay === day;
       const entry = isToday ? { type: 'none' as const } : getEntry(month, day);
 
       items.push({
@@ -126,21 +125,14 @@ function buildYearTimeline(): TimelineItem[] {
   return items;
 }
 
-const ALL_ITEMS = buildYearTimeline();
-const TODAY_INDEX = ALL_ITEMS.findIndex(
-  (item) => item.type === 'day' && (item as DayItem).isToday,
-);
-
-// Precompute cumulative y-offsets for getItemLayout — O(1) layout lookups
-const ITEM_OFFSETS: number[] = [];
-{
-  let y = INITIAL_CONTENT_PAD;
-  for (const item of ALL_ITEMS) {
-    ITEM_OFFSETS.push(y);
-    if (item.type === 'header') y += HEADER_H;
-    else if ((item as DayItem).isToday) y += TODAY_DAY_H;
-    else y += REGULAR_DAY_H;
+function buildOffsets(items: DayItem[]): number[] {
+  const offsets: number[] = [];
+  let y = SCROLL_TOP_PAD;
+  for (const item of items) {
+    offsets.push(y);
+    y += item.isToday ? TODAY_DAY_H : REGULAR_DAY_H;
   }
+  return offsets;
 }
 
 // ─── Entry icon overlay ───────────────────────────────────────────────────────
@@ -269,18 +261,28 @@ export default function TimelineScreen() {
   const [activeCard, setActiveCard] = useState<string | null>(null);
   const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold });
 
+  // Compute today fresh every time the screen mounts so the "today" card
+  // is never stale after midnight or after leaving the app open overnight.
+  const { allItems, todayIndex, itemOffsets } = useMemo(() => {
+    const now = new Date();
+    const allItems = buildYearTimeline(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayIndex = allItems.findIndex((item) => item.isToday);
+    const itemOffsets = buildOffsets(allItems);
+    return { allItems, todayIndex, itemOffsets };
+  }, []); // [] = recompute once per component mount
+
   // Scroll to today after fonts (and thus the FlatList) are ready
   useEffect(() => {
-    if (!fontsLoaded || TODAY_INDEX < 0) return;
+    if (!fontsLoaded || todayIndex < 0) return;
     const timer = setTimeout(() => {
       flatListRef.current?.scrollToIndex({
-        index: TODAY_INDEX,
-        viewPosition: 0.08, // today appears near the top of the viewport
+        index: todayIndex,
+        viewPosition: 0.08,
         animated: false,
       });
     }, 120);
     return () => clearTimeout(timer);
-  }, [fontsLoaded]);
+  }, [fontsLoaded, todayIndex]);
 
   const handleCardPress = useCallback((key: string) => {
     setActiveCard((prev) => (prev === key ? null : key));
@@ -288,60 +290,54 @@ export default function TimelineScreen() {
 
   const getItemLayout = useCallback(
     (_: unknown, index: number): { length: number; offset: number; index: number } => {
-      const item = ALL_ITEMS[index];
-      const length =
-        item.type === 'header'
-          ? HEADER_H
-          : (item as DayItem).isToday
-          ? TODAY_DAY_H
-          : REGULAR_DAY_H;
-      return { length, offset: ITEM_OFFSETS[index], index };
+      const length = allItems[index].isToday ? TODAY_DAY_H : REGULAR_DAY_H;
+      return { length, offset: itemOffsets[index], index };
     },
-    [],
+    [allItems, itemOffsets],
   );
 
-  const renderItem: ListRenderItem<TimelineItem> = useCallback(
-    ({ item, index }) => {
-      if (item.type === 'header') {
-        return (
-          <View style={styles.stickyHeader}>
-            <Text style={styles.headerTitle}>Your Timeline</Text>
-          </View>
-        );
-      }
-
-      return (
-        <DayRow
-          item={item as DayItem}
-          isLast={index === ALL_ITEMS.length - 1}
-          isActive={activeCard === item.key}
-          onPress={() => handleCardPress(item.key)}
-        />
-      );
-    },
-    [activeCard, handleCardPress],
+  const renderItem: ListRenderItem<DayItem> = useCallback(
+    ({ item, index }) => (
+      <DayRow
+        item={item}
+        isLast={index === allItems.length - 1}
+        isActive={activeCard === item.key}
+        onPress={() => handleCardPress(item.key)}
+      />
+    ),
+    [allItems, activeCard, handleCardPress],
   );
 
   if (!fontsLoaded) return <View style={styles.container} />;
 
   return (
     <View style={styles.container}>
+      {/* Figma radial gradient approximated as diagonal LinearGradient */}
+      <LinearGradient
+        colors={['#171854', '#10103B', '#090921']}
+        start={{ x: 1, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
+        {/* Fixed header — transparent so the gradient shows through */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Your Timeline</Text>
+        </View>
+
         <FlatList
           ref={flatListRef}
-          data={ALL_ITEMS}
+          data={allItems}
           keyExtractor={(item) => item.key}
           renderItem={renderItem}
           getItemLayout={getItemLayout}
-          stickyHeaderIndices={[0]}
           extraData={activeCard}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScrollToIndexFailed={(info) => {
-            // Fallback: use precomputed offset directly
             flatListRef.current?.scrollToOffset({
-              offset: Math.max(0, ITEM_OFFSETS[info.index] - 80),
+              offset: Math.max(0, itemOffsets[info.index] - 80),
               animated: false,
             });
           }}
@@ -359,25 +355,23 @@ const TIMELINE_COL_WIDTH = 50;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A2A',
+    backgroundColor: '#090921', // darkest gradient stop — shown before gradient renders
   },
   safeArea: {
     flex: 1,
   },
   scrollContent: {
-    paddingTop: INITIAL_CONTENT_PAD,
+    paddingTop: SCROLL_TOP_PAD,
     paddingLeft: 14,
     paddingRight: 18,
     paddingBottom: 100,
   },
 
-  // ── Sticky header ──
-  stickyHeader: {
-    backgroundColor: '#0A0A2A',
-    paddingHorizontal: 8,
-    paddingTop: 6,
-    paddingBottom: 12,
-    elevation: 10, // Android z-order fix for sticky items
+  // ── Fixed header (transparent — gradient shows through) ──
+  header: {
+    paddingHorizontal: 22,
+    paddingTop: 8,
+    paddingBottom: 14,
   },
   headerTitle: {
     fontFamily: 'Cabin-Bold',
