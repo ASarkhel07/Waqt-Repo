@@ -18,16 +18,16 @@ const MENU_ITEMS: {
   label: string;
   icon?: keyof typeof Ionicons.glyphMap;
 }[] = [
-  { label: 'Stats' },
-  { label: 'Notifications' },
-  { label: 'Themes' },
+  { label: 'Stats', icon: 'bar-chart-outline' },
+  { label: 'Notifications', icon: 'notifications-outline' },
+  { label: 'Themes', icon: 'color-palette-outline' },
   { label: 'Settings', icon: 'settings-outline' },
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ProfileScreen() {
-  const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold });
+  const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold, ...Ionicons.font });
 
   if (!fontsLoaded) return <View style={styles.container} />;
 
