@@ -1,7 +1,7 @@
 import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts } from 'expo-font';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import {
