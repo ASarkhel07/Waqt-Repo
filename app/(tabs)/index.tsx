@@ -1,6 +1,6 @@
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { RadialBackground } from '@/components/radial-background';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 const DOG_IMAGE = require('@/assets/images/border_collie_img.jpeg');
 
 const ORANGE = '#F5A855';
+const PEACH = '#FFD5B0';
 const GRAY_DOT = 'rgba(180, 176, 176, 0.6)';
 const GRAY_LINE = 'rgba(150, 146, 146, 0.35)';
 
@@ -234,14 +235,18 @@ function DayRow({
   isActive: boolean;
   onPress: () => void;
 }) {
-  const dotColor = item.hasEntry || item.isToday ? ORANGE : GRAY_DOT;
-  const lineColor = item.hasEntry || item.isToday ? ORANGE : GRAY_LINE;
+  const dotColor = item.hasEntry || item.isToday ? PEACH : GRAY_DOT;
+  const lineColor = item.hasEntry || item.isToday ? PEACH : GRAY_LINE;
 
   return (
     <View style={[styles.dayRow, item.isToday && styles.todayRow]}>
       {/* Left timeline rail */}
       <View style={styles.timelineColumn}>
-        <View style={[styles.dot, { backgroundColor: dotColor }]} />
+        {item.isToday ? (
+          <Text style={styles.todayStar}>✦</Text>
+        ) : (
+          <View style={[styles.dot, { backgroundColor: dotColor }]} />
+        )}
         {!isLast && <View style={[styles.line, { backgroundColor: lineColor }]} />}
       </View>
 
@@ -312,13 +317,7 @@ export default function TimelineScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Figma radial gradient approximated as diagonal LinearGradient */}
-      <LinearGradient
-        colors={['#171854', '#10103B', '#090921']}
-        start={{ x: 1, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+      <RadialBackground />
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         {/* Fixed header — transparent so the gradient shows through */}
@@ -396,6 +395,11 @@ const styles = StyleSheet.create({
     width: TIMELINE_DOT_SIZE,
     height: TIMELINE_DOT_SIZE,
     borderRadius: TIMELINE_DOT_SIZE / 2,
+  },
+  todayStar: {
+    color: ORANGE,
+    fontSize: 18,
+    textAlign: 'center',
   },
   line: {
     width: 2.5,
@@ -496,7 +500,7 @@ const styles = StyleSheet.create({
   overlayCard: {
     backgroundColor: 'rgba(212, 207, 202, 0.92)',
     borderRadius: 28,
-    height: REGULAR_CARD_H,
+    height: TODAY_CARD_H,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-evenly',

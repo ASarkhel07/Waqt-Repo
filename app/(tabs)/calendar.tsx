@@ -2,14 +2,15 @@ import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { LinearGradient } from 'expo-linear-gradient';
+import { RadialBackground } from '@/components/radial-background';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import {
-  Dimensions,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Dimensions,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -119,7 +120,12 @@ function ProgressBar({ entryCount, totalDays }: { entryCount: number; totalDays:
     <View style={styles.progressSection}>
       <View style={styles.progressTrack}>
         <View style={styles.progressGhost} />
-        <View style={[styles.progressFill, { width: fillWidth }]} />
+        <LinearGradient
+          colors={['#6B3D00', ORANGE]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[styles.progressFill, { width: fillWidth }]}
+        />
       </View>
       <Text style={styles.entriesLabel}>
         {entryCount}/{totalDays} monthly entries
@@ -159,12 +165,7 @@ export default function CalendarScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#171854', '#10103B', '#090921']}
-        start={{ x: 1, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+      <RadialBackground />
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
 
@@ -252,7 +253,7 @@ const styles = StyleSheet.create({
 
   // ── Title ──
   headerSection: {
-    marginTop: 52,
+    marginTop: 130,
     marginBottom: 18,
   },
   pageTitle: {
@@ -282,7 +283,6 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
-    backgroundColor: ORANGE,
     borderRadius: 12,
   },
   entriesLabel: {

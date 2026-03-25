@@ -1,6 +1,6 @@
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { RadialBackground } from '@/components/radial-background';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
@@ -33,12 +33,7 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#171854', '#10103B', '#090921']}
-        start={{ x: 1, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+      <RadialBackground />
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea} edges={['top']}>
 
