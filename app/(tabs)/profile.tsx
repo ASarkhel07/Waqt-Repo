@@ -1,6 +1,6 @@
+import { RadialBackground } from '@/components/radial-background';
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
-import { RadialBackground } from '@/components/radial-background';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';

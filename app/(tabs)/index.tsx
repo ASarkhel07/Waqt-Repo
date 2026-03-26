@@ -2,6 +2,7 @@ import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { RadialBackground } from '@/components/radial-background';
 import { useFonts } from 'expo-font';
+import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -147,14 +148,23 @@ const ENTRY_ICONS: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function OverlayCard({ onClose }: { onClose: () => void }) {
+function OverlayCard({ onClose, dateLabel }: { onClose: () => void; dateLabel: string }) {
+  function handleIconPress(label: string) {
+    onClose();
+    if (label === 'Photo') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      router.push({ pathname: '/photo-entry' as any, params: { date: dateLabel } });
+    }
+    // Voice / Text / Video will be wired up when those screens are built
+  }
+
   return (
     <TouchableOpacity style={styles.overlayCard} activeOpacity={1} onPress={onClose}>
       {ENTRY_ICONS.map(({ icon, label }) => (
         <TouchableOpacity
           key={icon}
           style={styles.overlayIconButton}
-          onPress={() => {/* TODO: navigate to entry creation */}}
+          onPress={() => handleIconPress(label)}
         >
           <Ionicons name={icon} size={34} color="#1C1A1A" />
           <Text style={styles.overlayIconLabel}>{label}</Text>
@@ -174,9 +184,8 @@ function DayCard({
   onPress: () => void;
 }) {
   if (isActive) {
-    // Today's overlay is taller to match the card
     return (
-      <OverlayCard onClose={onPress} />
+      <OverlayCard onClose={onPress} dateLabel={item.dateLabel} />
     );
   }
 
