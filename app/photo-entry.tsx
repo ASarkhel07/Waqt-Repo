@@ -1,6 +1,6 @@
+import { RadialBackground } from '@/components/radial-background';
 import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
-import { RadialBackground } from '@/components/radial-background';
 import { useFonts } from 'expo-font';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
