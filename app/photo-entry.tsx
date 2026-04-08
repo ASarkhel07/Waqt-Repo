@@ -87,8 +87,7 @@ export default function PhotoEntryScreen() {
   });
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [caption, setCaption] = useState('');
 
   // `date` is already formatted as "MMM D" (e.g. "Feb 4") from the timeline
   const dateLabel = typeof date === 'string' && date.length > 0 ? date : todayLabel();
@@ -182,28 +181,18 @@ export default function PhotoEntryScreen() {
               )}
             </TouchableOpacity>
 
-            {/* ── Text entry area ── */}
-            <View style={styles.textBox}>
+            {/* ── Caption ── */}
+            <View style={styles.captionBox}>
               <TextInput
-                style={styles.titleInput}
-                placeholder="Title..."
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={title}
-                onChangeText={setTitle}
-                returnKeyType="next"
-                maxLength={80}
-              />
-              <View style={styles.divider} />
-              <TextInput
-                style={styles.bodyInput}
-                placeholder="Write about it..."
+                style={styles.captionInput}
+                placeholder="Add a caption..."
                 placeholderTextColor="rgba(255,255,255,0.35)"
-                value={body}
-                onChangeText={setBody}
-                multiline
-                textAlignVertical="top"
-                returnKeyType="default"
+                value={caption}
+                onChangeText={setCaption}
+                returnKeyType="done"
+                maxLength={100}
               />
+              <Text style={styles.captionCounter}>{100 - caption.length}</Text>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -274,7 +263,7 @@ const styles = StyleSheet.create({
   // ── Photo ──
   photoBox: {
     width: '100%',
-    aspectRatio: 1,
+    aspectRatio: 4 / 5, // slightly portrait — photo takes up more of the screen
     borderRadius: 18,
     overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.07)',
@@ -303,29 +292,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  // ── Text area ──
-  textBox: {
-    backgroundColor: 'rgba(131,124,124,0.28)',
-    borderRadius: 18,
-    padding: 20,
-    minHeight: 180,
+  // ── Caption ──
+  captionBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
   },
-  titleInput: {
-    fontFamily: 'Cabin-Bold',
-    color: 'white',
-    fontSize: 32,
-    marginBottom: 10,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    marginBottom: 12,
-  },
-  bodyInput: {
+  captionInput: {
+    flex: 1,
     fontFamily: 'Cabin-Regular',
     color: 'rgba(255,255,255,0.85)',
-    fontSize: 16,
-    lineHeight: 24,
-    minHeight: 100,
+    fontSize: 15,
+  },
+  captionCounter: {
+    fontFamily: 'Cabin-Regular',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 12,
+    alignSelf: 'flex-end',
+    paddingBottom: 2,
   },
 });

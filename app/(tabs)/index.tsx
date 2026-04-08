@@ -1,6 +1,6 @@
+import { RadialBackground } from '@/components/radial-background';
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
-import { RadialBackground } from '@/components/radial-background';
 import { useFonts } from 'expo-font';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -143,7 +143,7 @@ const ENTRY_ICONS: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
   { icon: 'camera-outline', label: 'Photo' },
   { icon: 'mic-outline', label: 'Voice' },
   { icon: 'create-outline', label: 'Text' },
-  { icon: 'videocam-outline', label: 'Video' },
+  //{ icon: 'videocam-outline', label: 'Video' },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -154,8 +154,11 @@ function OverlayCard({ onClose, dateLabel }: { onClose: () => void; dateLabel: s
     if (label === 'Photo') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       router.push({ pathname: '/photo-entry' as any, params: { date: dateLabel } });
+    } else if (label === 'Text') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      router.push({ pathname: '/note-entry' as any, params: { date: dateLabel } });
     }
-    // Voice / Text / Video will be wired up when those screens are built
+    // Voice will be wired up when that screen is built
   }
 
   return (
