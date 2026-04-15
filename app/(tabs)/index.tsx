@@ -157,8 +157,10 @@ function OverlayCard({ onClose, dateLabel }: { onClose: () => void; dateLabel: s
     } else if (label === 'Text') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       router.push({ pathname: '/note-entry' as any, params: { date: dateLabel } });
+    } else if (label === 'Voice') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      router.push({ pathname: '/audio-entry' as any, params: { date: dateLabel } });
     }
-    // Voice will be wired up when that screen is built
   }
 
   return (

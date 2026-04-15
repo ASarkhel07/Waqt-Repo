@@ -57,7 +57,7 @@ export default function AuthScreen() {
     'Cabin-Regular': Cabin_400Regular,
   });
 
-  const [mode,     setMode]     = useState<'login' | 'signup'>('login');
+  const [mode,     setMode]     = useState<'login' | 'signup'>('signup');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [loading,  setLoading]  = useState(false);
@@ -84,12 +84,19 @@ export default function AuthScreen() {
         if (error) setFeedback(error.message);
         // On success the root layout's onAuthStateChange fires and redirects to /(tabs)
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
         });
-        if (error) setFeedback(error.message);
-        else setFeedback('Account created! Check your email to confirm, then log in.');
+        if (error) {
+          setFeedback(error.message);
+        } else {
+          // Auto-create the profile row linked to the new auth user
+          if (data.user) {
+            await supabase.from('profiles').upsert({ id: data.user.id });
+          }
+          setFeedback('Account created! Check your email to confirm, then log in.');
+        }
       }
     } finally {
       setLoading(false);

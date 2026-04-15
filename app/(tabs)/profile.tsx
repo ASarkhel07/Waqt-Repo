@@ -1,9 +1,10 @@
 import { RadialBackground } from '@/components/radial-background';
+import { supabase } from '@/lib/supabase';
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -28,6 +29,27 @@ const MENU_ITEMS: {
 
 export default function ProfileScreen() {
   const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold, ...Ionicons.font });
+  const [fullName, setFullName] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchProfile() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .single();
+      // Use saved name, or fall back to the part of the email before @
+      setFullName(data?.full_name ?? user.email?.split('@')[0] ?? null);
+    }
+    fetchProfile();
+  }, []);
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    // AuthGate in _layout.tsx detects the cleared session and redirects to /auth
+  }
 
   if (!fontsLoaded) return <View style={styles.container} />;
 
@@ -40,7 +62,7 @@ export default function ProfileScreen() {
         {/* ── Header ── */}
         <View style={styles.header}>
           <Text style={styles.pageTitle}>Profile</Text>
-          <Text style={styles.greeting}>Hello, Ishan</Text>
+          <Text style={styles.greeting}>Hello, {fullName ?? '...'}</Text>
         </View>
 
         {/* ── Menu ── */}
@@ -64,6 +86,21 @@ export default function ProfileScreen() {
               </Text>
             </TouchableOpacity>
           ))}
+
+          {/* ── Sign Out ── */}
+          <TouchableOpacity
+            style={[styles.menuRow, styles.menuRowWithIcon]}
+            activeOpacity={0.65}
+            onPress={handleSignOut}
+          >
+            <Ionicons
+              name="log-out-outline"
+              size={40}
+              color="rgba(255,100,100,0.85)"
+              style={styles.menuIcon}
+            />
+            <Text style={[styles.menuText, styles.signOutText]}>Sign Out</Text>
+          </TouchableOpacity>
         </View>
 
       </SafeAreaView>
@@ -125,5 +162,8 @@ const styles = StyleSheet.create({
   // Non-icon rows are indented to align their text with the icon rows' text
   menuTextIndented: {
     marginLeft: 58, // icon (40) + gap (18) = 58
+  },
+  signOutText: {
+    color: 'rgba(255,100,100,0.85)',
   },
 });
