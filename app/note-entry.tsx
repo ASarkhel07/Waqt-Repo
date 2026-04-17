@@ -2,6 +2,8 @@ import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { RadialBackground } from '@/components/radial-background';
 import { supabase } from '@/lib/supabase';
+import { decode } from 'base64-arraybuffer';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useFonts } from 'expo-font';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -176,14 +178,16 @@ export default function NoteEntryScreen() {
 
   async function uploadCoverImage(localUri: string, userId: string): Promise<string | null> {
     try {
-      const response = await fetch(localUri);
-      const blob     = await response.blob();
       const ext      = localUri.split('.').pop()?.split('?')[0] ?? 'jpg';
       const filePath = `${userId}/${Date.now()}.${ext}`;
 
+      const base64 = await FileSystem.readAsStringAsync(localUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
       const { error } = await supabase.storage
         .from('entry-covers')
-        .upload(filePath, blob, { contentType: `image/${ext}`, upsert: false });
+        .upload(filePath, decode(base64), { contentType: `image/${ext}`, upsert: false });
 
       if (error) { console.warn('Cover upload error:', error.message); return null; }
 

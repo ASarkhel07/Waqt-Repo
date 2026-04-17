@@ -1,5 +1,8 @@
 import { RadialBackground } from '@/components/radial-background';
+import { supabase } from '@/lib/supabase';
+import { decode } from 'base64-arraybuffer';
 import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as ImagePicker from 'expo-image-picker';
@@ -88,9 +91,72 @@ export default function PhotoEntryScreen() {
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
+  const [saving, setSaving] = useState(false);
 
   // `date` is already formatted as "MMM D" (e.g. "Feb 4") from the timeline
   const dateLabel = typeof date === 'string' && date.length > 0 ? date : todayLabel();
+
+  // SUPABASE FUNCTIONS
+  async function uploadImageToSupabase(localUri: string, userId: string): Promise<string | null> {
+    try {
+      const ext = localUri.split('.').pop()?.split('?')[0] ?? 'jpg';
+      const filePath = `${userId}/${Date.now()}.${ext}`;
+
+      const base64 = await FileSystem.readAsStringAsync(localUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const { error } = await supabase.storage
+        .from('images')
+        .upload(filePath, decode(base64), { contentType: `image/${ext}`, upsert: false });
+
+      if (error) { console.warn('Image upload error:', error.message); return null;}
+
+      const { data } = supabase.storage.from('images').getPublicUrl(filePath);
+      return data.publicUrl;
+    } catch (e) {
+      console.warn('Image upload exception:', e);
+      return null;
+    }
+  }
+
+  async function handleSave() {
+    if (saving) return;
+    if (!photoUri) { //change to photo not caption
+      Alert.alert('Nothing to save', 'Add a photo before saving.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser(); //copy getUser method from note-entry
+      if (!user) {
+        Alert.alert('Login required', 'Please login to save your photo.');
+        return;
+      }
+
+      let imageUrl: string | null = null;
+      if (photoUri) {
+        imageUrl = await uploadImageToSupabase(photoUri, user.id);
+      }
+
+      const { error } = await supabase.from('image_entries').insert({
+        user_id: user.id,
+        created_at: new Date().toISOString(),
+        caption: caption.trim() || null,
+        image_url: imageUrl,
+      });
+
+      if (error) {
+        Alert.alert('Save failed', error.message);
+        return;
+      }
+
+      router.back();
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function showPhotoOptions() {
     if (Platform.OS === 'ios') {
@@ -154,6 +220,14 @@ export default function PhotoEntryScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={10}
         >
+        <TouchableOpacity
+          style={[styles.checkButton, saving && styles.checkButtonSaving]}
+          activeOpacity={0.75}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          <Ionicons name="checkmark" size={26} color={saving ? 'rgba(255,255,255,0.4)' : 'white'} />
+        </TouchableOpacity>
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
@@ -314,5 +388,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     alignSelf: 'flex-end',
     paddingBottom: 2,
+  },
+  checkButtonSaving: {
+    borderColor: 'rgba(255,255,255,0.2)',
   },
 });
