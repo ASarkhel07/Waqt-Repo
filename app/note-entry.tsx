@@ -1,6 +1,7 @@
 import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { RadialBackground } from '@/components/radial-background';
+import { supabase } from '@/lib/supabase';
 import { useFonts } from 'expo-font';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -87,6 +88,7 @@ export default function NoteEntryScreen() {
   const [body,          setBody]          = useState('');
   const [coverUri,      setCoverUri]      = useState<string | null>(null);
   const [isBodyFocused, setIsBodyFocused] = useState(false);
+  const [saving,        setSaving]        = useState(false);
 
   const dateLabel = typeof date === 'string' && date.length > 0 ? date : todayLabel();
 
@@ -170,6 +172,68 @@ export default function NoteEntryScreen() {
     }
   }
 
+  // ── Persist to Supabase ───────────────────────────────────────────────────
+
+  async function uploadCoverImage(localUri: string, userId: string): Promise<string | null> {
+    try {
+      const response = await fetch(localUri);
+      const blob     = await response.blob();
+      const ext      = localUri.split('.').pop()?.split('?')[0] ?? 'jpg';
+      const filePath = `${userId}/${Date.now()}.${ext}`;
+
+      const { error } = await supabase.storage
+        .from('entry-covers')
+        .upload(filePath, blob, { contentType: `image/${ext}`, upsert: false });
+
+      if (error) { console.warn('Cover upload error:', error.message); return null; }
+
+      const { data } = supabase.storage.from('entry-covers').getPublicUrl(filePath);
+      return data.publicUrl;
+    } catch (e) {
+      console.warn('Cover upload exception:', e);
+      return null;
+    }
+  }
+
+  async function handleSave() {
+    if (saving) return;
+    if (!title.trim() && !body.trim()) {
+      Alert.alert('Nothing to save', 'Add a title or some text before saving.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Not signed in', 'Please sign in to save entries.');
+        return;
+      }
+
+      let coverImageUrl: string | null = null;
+      if (coverUri) {
+        coverImageUrl = await uploadCoverImage(coverUri, user.id);
+      }
+
+      const { error } = await supabase.from('text_entry').insert({
+        user_id:          user.id,
+        title:            title.trim() || null,
+        body:             body.trim()  || null,
+        cover_image_url:  coverImageUrl,
+        entry_date:       new Date().toISOString().split('T')[0],
+      });
+
+      if (error) {
+        Alert.alert('Save failed', error.message);
+        return;
+      }
+
+      router.back();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (!fontsLoaded) return <View style={styles.container} />;
 
   return (
@@ -198,9 +262,13 @@ export default function NoteEntryScreen() {
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
 
-          {/* Non-functional until Supabase save is wired up */}
-          <TouchableOpacity style={styles.checkButton} activeOpacity={0.75}>
-            <Ionicons name="checkmark" size={26} color="white" />
+          <TouchableOpacity
+            style={[styles.checkButton, saving && styles.checkButtonSaving]}
+            activeOpacity={0.75}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            <Ionicons name="checkmark" size={26} color={saving ? 'rgba(255,255,255,0.4)' : 'white'} />
           </TouchableOpacity>
         </Animated.View>
 
@@ -306,6 +374,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  checkButtonSaving: {
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   heroTextArea: {
     position: 'absolute',

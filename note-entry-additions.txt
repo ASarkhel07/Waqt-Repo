@@ -1,0 +1,90 @@
+// ─── 1. New import (added alongside existing imports) ─────────────────────────
+
+import { supabase } from '@/lib/supabase';
+
+
+// ─── 2. New state variable (added alongside existing useState declarations) ────
+
+const [saving, setSaving] = useState(false);
+
+
+// ─── 3. New functions (added just before the return statement) ─────────────────
+
+async function uploadCoverImage(localUri: string, userId: string): Promise<string | null> {
+  try {
+    const response = await fetch(localUri);
+    const blob     = await response.blob();
+    const ext      = localUri.split('.').pop()?.split('?')[0] ?? 'jpg';
+    const filePath = `${userId}/${Date.now()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from('entry-covers')
+      .upload(filePath, blob, { contentType: `image/${ext}`, upsert: false });
+
+    if (error) { console.warn('Cover upload error:', error.message); return null; }
+
+    const { data } = supabase.storage.from('entry-covers').getPublicUrl(filePath);
+    return data.publicUrl;
+  } catch (e) {
+    console.warn('Cover upload exception:', e);
+    return null;
+  }
+}
+
+async function handleSave() {
+  if (saving) return;
+  if (!title.trim() && !body.trim()) {
+    Alert.alert('Nothing to save', 'Add a title or some text before saving.');
+    return;
+  }
+
+  setSaving(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      Alert.alert('Not signed in', 'Please sign in to save entries.');
+      return;
+    }
+
+    let coverImageUrl: string | null = null;
+    if (coverUri) {
+      coverImageUrl = await uploadCoverImage(coverUri, user.id);
+    }
+
+    const { error } = await supabase.from('text_entry').insert({
+      user_id:          user.id,
+      title:            title.trim() || null,
+      body:             body.trim()  || null,
+      cover_image_url:  coverImageUrl,
+      entry_date:       new Date().toISOString().split('T')[0],
+    });
+
+    if (error) {
+      Alert.alert('Save failed', error.message);
+      return;
+    }
+
+    router.back();
+  } finally {
+    setSaving(false);
+  }
+}
+
+
+// ─── 4. Updated checkmark button JSX (replaces the old non-functional button) ──
+
+<TouchableOpacity
+  style={[styles.checkButton, saving && styles.checkButtonSaving]}
+  activeOpacity={0.75}
+  onPress={handleSave}
+  disabled={saving}
+>
+  <Ionicons name="checkmark" size={26} color={saving ? 'rgba(255,255,255,0.4)' : 'white'} />
+</TouchableOpacity>
+
+
+// ─── 5. New style (added inside StyleSheet.create, after checkButton) ──────────
+
+checkButtonSaving: {
+  borderColor: 'rgba(255,255,255,0.2)',
+},
