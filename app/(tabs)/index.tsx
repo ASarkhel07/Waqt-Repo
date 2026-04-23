@@ -1,4 +1,5 @@
 import { RadialBackground } from '@/components/radial-background';
+import { supabase } from '@/lib/supabase';
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
@@ -51,6 +52,34 @@ const TODAY_DAY_H =
 // = 10 + 52 + 10 + 200 + 14 + 34 = 320
 
 const SCROLL_TOP_PAD = 8; // small gap between fixed header and first day
+
+function toISODate(year: number, month: number, day: number): string {
+  // month is 0-indexed (matching JS Date), so add 1 for ISO format
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+async function getDaysEntries(year: number, month: number, day: number) {
+  const { data, error } = await supabase
+    .from('text_entry')
+    .select('*')
+    .eq('entry_date', toISODate(year, month, day));
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function hasDaysEntries(year: number, month: number, day: number): Promise<boolean> {
+  // Build start/end using a real Date so month-end rollover is handled correctly
+  const start = new Date(year, month, day);
+  const end   = new Date(year, month, day + 1);
+  const fmt   = (d: Date) => d.toISOString().split('T')[0]; // "YYYY-MM-DD"
+  const { count, error } = await supabase
+    .from('text_entry')
+    .select('*', { count: 'exact', head: true })
+    .gte('entry_date', fmt(start))
+    .lt('entry_date', fmt(end));
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
 
 // ─── Entry data ───────────────────────────────────────────────────────────────
 
@@ -183,10 +212,12 @@ function DayCard({
   item,
   isActive,
   onPress,
+  todayHasEntry,
 }: {
   item: DayItem;
   isActive: boolean;
   onPress: () => void;
+  todayHasEntry?: boolean;
 }) {
   if (isActive) {
     return (
@@ -195,10 +226,14 @@ function DayCard({
   }
 
   if (item.isToday) {
+    const cardStyle = todayHasEntry ? styles.todayCardWithEntry : styles.todayCard;
+    const iconColor = todayHasEntry ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.7)';
+    const labelText = todayHasEntry ? 'Memory saved!' : 'Create a memory';
+    const iconName = todayHasEntry ? 'checkmark-circle-outline' : 'add-circle-outline';
     return (
-      <TouchableOpacity style={styles.todayCard} activeOpacity={0.85} onPress={onPress}>
-        <Ionicons name="add-circle-outline" size={40} color="rgba(255,255,255,0.7)" />
-        <Text style={styles.createMemoryText}>Create a memory</Text>
+      <TouchableOpacity style={cardStyle} activeOpacity={0.85} onPress={onPress}>
+        <Ionicons name={iconName} size={40} color={iconColor} />
+        <Text style={styles.createMemoryText}>{labelText}</Text>
       </TouchableOpacity>
     );
   }
@@ -243,11 +278,13 @@ function DayRow({
   isLast,
   isActive,
   onPress,
+  todayHasEntry,
 }: {
   item: DayItem;
   isLast: boolean;
   isActive: boolean;
   onPress: () => void;
+  todayHasEntry?: boolean;
 }) {
   const dotColor = item.hasEntry || item.isToday ? PEACH : GRAY_DOT;
   const lineColor = item.hasEntry || item.isToday ? PEACH : GRAY_LINE;
@@ -267,7 +304,7 @@ function DayRow({
       {/* Right content */}
       <View style={[styles.contentColumn, item.isToday && styles.todayContentColumn]}>
         <Text style={styles.dateLabel}>{item.dateLabel}</Text>
-        <DayCard item={item} isActive={isActive} onPress={onPress} />
+        <DayCard item={item} isActive={isActive} onPress={onPress} todayHasEntry={todayHasEntry} />
       </View>
     </View>
   );
@@ -289,6 +326,15 @@ export default function TimelineScreen() {
     const itemOffsets = buildOffsets(allItems);
     return { allItems, todayIndex, itemOffsets };
   }, []); // [] = recompute once per component mount
+
+  const [todayHasEntry, setTodayHasEntry] = useState(false);
+
+  useEffect(() => {
+    const now = new Date();
+    hasDaysEntries(now.getFullYear(), now.getMonth(), now.getDate())
+      .then(setTodayHasEntry)
+      .catch(console.error);
+  }, []);
 
   // Scroll to today after fonts (and thus the FlatList) are ready
   useEffect(() => {
@@ -322,9 +368,10 @@ export default function TimelineScreen() {
         isLast={index === allItems.length - 1}
         isActive={activeCard === item.key}
         onPress={() => handleCardPress(item.key)}
+        todayHasEntry={item.isToday ? todayHasEntry : undefined}
       />
     ),
-    [allItems, activeCard, handleCardPress],
+    [allItems, activeCard, handleCardPress, todayHasEntry],
   );
 
   if (!fontsLoaded) return <View style={styles.container} />;
@@ -345,7 +392,7 @@ export default function TimelineScreen() {
           keyExtractor={(item) => item.key}
           renderItem={renderItem}
           getItemLayout={getItemLayout}
-          extraData={activeCard}
+          extraData={[activeCard, todayHasEntry]}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScrollToIndexFailed={(info) => {
@@ -440,6 +487,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 168, 85, 0.10)',
     borderWidth: 1.5,
     borderColor: 'rgba(245, 168, 85, 0.32)',
+    borderRadius: 28,
+    height: TODAY_CARD_H,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+  },
+  todayCardWithEntry: {
+    backgroundColor: 'rgba(52, 199, 89, 0.12)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(52, 199, 89, 0.45)',
     borderRadius: 28,
     height: TODAY_CARD_H,
     justifyContent: 'center',

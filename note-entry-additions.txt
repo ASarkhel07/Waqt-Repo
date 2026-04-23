@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 
 const [saving, setSaving] = useState(false);
 
-
+// For image entry, our fields are: ID, User_ID, Created_At, Caption, Image_URL
 // ─── 3. New functions (added just before the return statement) ─────────────────
 
 async function uploadCoverImage(localUri: string, userId: string): Promise<string | null> {

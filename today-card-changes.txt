@@ -1,0 +1,188 @@
+CHANGES MADE: Today's Card — Entry Detection & Green State
+==========================================================
+Date: April 22, 2026
+Files modified: app/(tabs)/index.tsx, app/note-entry.tsx
+
+
+────────────────────────────────────────────────────────────
+FILE: app/(tabs)/index.tsx
+────────────────────────────────────────────────────────────
+
+1. ADDED — toISODate() helper function (above getDaysEntries)
+   Converts (year, month, day) into a "YYYY-MM-DD" string.
+   Month is 0-indexed (matching JS Date), so +1 is applied.
+   padStart(2, '0') ensures single-digit months/days get a leading zero.
+
+   function toISODate(year: number, month: number, day: number): string {
+     return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+   }
+
+─────────────────────────────────────────────────────────────
+
+2. CHANGED — getDaysEntries() function
+
+   BEFORE:
+     - Queried table: 'entries'
+     - Filtered by three separate columns: .eq('year', year), .eq('month', month), .eq('day', day)
+     - Return type annotated as Promise<EntryType[]> (was incorrect — EntryType is a local UI type)
+
+   AFTER:
+     - Queries table: 'text_entry'
+     - Filters by single column: .eq('entry_date', toISODate(year, month, day))
+     - Return type is inferred (no explicit annotation)
+     - Returns data ?? [] to avoid returning null
+
+─────────────────────────────────────────────────────────────
+
+3. ADDED — hasDaysEntries() function
+
+   Checks whether any entries exist for a given day and returns a boolean.
+   Uses a date range query (.gte / .lt) instead of .eq so that full
+   timestamp values stored in entry_date still match (e.g. "2026-04-22T14:30:00"
+   is caught by gte("2026-04-22") and lt("2026-04-23")).
+   Uses new Date(year, month, day + 1) for the upper bound so month-end
+   rollover is handled correctly by JavaScript (e.g. April 30 + 1 = May 1).
+   Uses count: 'exact', head: true so Supabase returns only the row count
+   with no actual row data fetched (efficient existence check).
+
+   async function hasDaysEntries(year, month, day): Promise<boolean> {
+     const start = new Date(year, month, day);
+     const end   = new Date(year, month, day + 1);
+     const fmt   = (d) => d.toISOString().split('T')[0];
+     const { count, error } = await supabase
+       .from('text_entry')
+       .select('*', { count: 'exact', head: true })
+       .gte('entry_date', fmt(start))
+       .lt('entry_date', fmt(end));
+     if (error) throw error;
+     return (count ?? 0) > 0;
+   }
+
+─────────────────────────────────────────────────────────────
+
+4. CHANGED — DayCard component
+
+   BEFORE:
+     - Props: { item, isActive, onPress }
+     - When item.isToday: always rendered the orange card with
+       "add-circle-outline" icon and "Create a memory" label
+
+   AFTER:
+     - Props: { item, isActive, onPress, todayHasEntry?: boolean }
+     - When item.isToday AND todayHasEntry is true:
+         * Card style → todayCardWithEntry (green border/background)
+         * Icon       → "checkmark-circle-outline"
+         * Label      → "Memory saved!"
+     - When item.isToday AND todayHasEntry is false (default):
+         * Card style → todayCard (original orange)
+         * Icon       → "add-circle-outline"
+         * Label      → "Create a memory"
+
+─────────────────────────────────────────────────────────────
+
+5. CHANGED — DayRow component
+
+   BEFORE:
+     - Props: { item, isLast, isActive, onPress }
+
+   AFTER:
+     - Props: { item, isLast, isActive, onPress, todayHasEntry?: boolean }
+     - Passes todayHasEntry through to DayCard
+
+─────────────────────────────────────────────────────────────
+
+6. ADDED — todayHasEntry state in TimelineScreen
+
+   const [todayHasEntry, setTodayHasEntry] = useState(false);
+
+   useEffect(() => {
+     const now = new Date();
+     hasDaysEntries(now.getFullYear(), now.getMonth(), now.getDate())
+       .then(setTodayHasEntry)
+       .catch(console.error);
+   }, []);
+
+   Runs once on mount. Queries Supabase for today's entries and sets
+   todayHasEntry to true/false depending on whether any exist.
+
+─────────────────────────────────────────────────────────────
+
+7. CHANGED — renderItem in TimelineScreen
+
+   BEFORE:
+     - Rendered <DayRow> without todayHasEntry prop
+     - extraData={activeCard}
+
+   AFTER:
+     - Passes todayHasEntry={item.isToday ? todayHasEntry : undefined}
+       so only today's row receives the prop (other rows get undefined)
+     - extraData={[activeCard, todayHasEntry]} so the FlatList re-renders
+       today's card once the Supabase check resolves
+
+─────────────────────────────────────────────────────────────
+
+8. ADDED — todayCardWithEntry style in StyleSheet
+
+   todayCardWithEntry: {
+     backgroundColor: 'rgba(52, 199, 89, 0.12)',   // green tint
+     borderWidth: 1.5,
+     borderColor: 'rgba(52, 199, 89, 0.45)',        // green border
+     borderRadius: 28,
+     height: TODAY_CARD_H,
+     justifyContent: 'center',
+     alignItems: 'center',
+     gap: 10,
+   }
+
+   Same dimensions as todayCard but with iOS system green colouring.
+
+
+────────────────────────────────────────────────────────────
+FILE: app/note-entry.tsx
+────────────────────────────────────────────────────────────
+
+9. ADDED — localDateString() helper function
+
+   function localDateString(d: Date): string {
+     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+   }
+
+   WHY: new Date().toISOString() returns the UTC date, not local time.
+   If the user's timezone is behind UTC, saving late in the evening would
+   write tomorrow's UTC date into entry_date (confirmed: a test entry showed
+   2026-04-23 in the DB when local time was still April 22). This helper
+   uses getFullYear/getMonth/getDate which are local-timezone-aware.
+
+─────────────────────────────────────────────────────────────
+
+10. CHANGED — entry_date value in handleSave()
+
+    BEFORE:
+      entry_date: new Date().toISOString().split('T')[0]   // UTC date
+
+    AFTER:
+      entry_date: localDateString(new Date())              // local date
+
+
+────────────────────────────────────────────────────────────
+ROOT CAUSE SUMMARY
+────────────────────────────────────────────────────────────
+
+The green card was not appearing because of a chain of three issues:
+
+  1. getDaysEntries queried a non-existent table ('entries') — fixed by
+     switching to 'text_entry'.
+
+  2. hasDaysEntries used .eq() on entry_date, but entry_date was stored
+     as a full timestamp in some rows — fixed by switching to .gte/.lt
+     range query. (Later confirmed the column is actually plain YYYY-MM-DD,
+     but the range query works correctly either way.)
+
+  3. note-entry.tsx saved entry_date using toISOString() (UTC), so entries
+     saved in the evening were written with tomorrow's date. hasDaysEntries
+     looked for today's local date and found nothing — fixed by using
+     localDateString() which reads local time parts instead of UTC.
+
+  ACTION REQUIRED: The existing test entry in Supabase with entry_date
+  = '2026-04-23' was saved with the old UTC bug. Edit that row in the
+  Supabase dashboard to '2026-04-22' so it is counted correctly.

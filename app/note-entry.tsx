@@ -39,6 +39,11 @@ const SHORT_MONTHS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
+function localDateString(d: Date): string {
+  // Use local date parts (not UTC) so the saved date matches the user's timezone
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function todayLabel(): string {
   const now = new Date();
   return `${SHORT_MONTHS[now.getMonth()]} ${now.getDate()}`;
@@ -224,7 +229,7 @@ export default function NoteEntryScreen() {
         title:            title.trim() || null,
         body:             body.trim()  || null,
         cover_image_url:  coverImageUrl,
-        entry_date:       new Date().toISOString().split('T')[0],
+        entry_date:       localDateString(new Date()),
       });
 
       if (error) {
