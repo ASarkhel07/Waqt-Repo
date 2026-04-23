@@ -1,0 +1,79 @@
+//NEW IMPORTS
+import * as FileSystem from 'expo-file-system';
+import { supabase } from '@/lib/supabase';
+
+//NEW STATE
+const [isSaving, setIsSaving] = useState(false);
+
+//FULL REWRITTEN stopRecording
+async function stopRecording() {
+  // [A] Stop timer and finalize the audio file on disk
+  if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  await audioRecorder.stop();
+
+  // [B] Snapshot before anything resets — uri and elapsedMs become invalid after [C]
+  const durationSeconds = Math.round(elapsedMs / 1000);
+  const localUri = audioRecorder.uri;
+
+  // [C] Reset UI immediately so the screen feels instant
+  setPhase('idle');
+  setElapsedMs(0);
+  resetBars();
+
+  // [D] Guard: if no file was produced, bail out
+  if (!localUri) return;
+
+  setIsSaving(true);
+  try {
+    // [E] Get the logged-in user's ID
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // [F] Read the local audio file as base64
+    const base64 = await FileSystem.readAsStringAsync(localUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    // [G] Convert base64 → ArrayBuffer (what Supabase upload() needs)
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const arrayBuffer = bytes.buffer;
+
+    // [H] Build unique storage path: audio/{user_id}/{timestamp}.m4a
+    const storagePath = `${user.id}/${Date.now()}.m4a`;
+
+    // [I] Upload file to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('audio')
+      .upload(storagePath, arrayBuffer, { contentType: 'audio/m4a', upsert: false });
+
+    if (uploadError) { console.error('Upload failed:', uploadError.message); return; }
+
+    // [J] Get the public URL of the uploaded file
+    const { data: urlData } = supabase.storage.from('audio').getPublicUrl(storagePath);
+    const publicUrl = urlData.publicUrl;
+
+    // [K] Insert metadata row into audio_entries table
+    const { error: insertError } = await supabase
+      .from('audio_entries')
+      .insert({
+        user_id: user.id,
+        audio_url: publicUrl,
+        duration_seconds: durationSeconds,
+        title: dateLabel,
+      });
+
+    if (insertError) { console.error('DB insert failed:', insertError.message); }
+
+  } finally {
+    // [L] Always hide saving indicator — even if something above failed
+    setIsSaving(false);
+  }
+}
+
+//DISABLE BUTTONS WHILE SAVING (in the JSX)
+<TouchableOpacity disabled={isSaving} onPress={handleMainPress} ...>
+<TouchableOpacity disabled={isSaving} onPress={stopRecording} ...>

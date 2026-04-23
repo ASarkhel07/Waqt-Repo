@@ -1,6 +1,7 @@
+import { RadialBackground } from '@/components/radial-background';
+import { supabase } from '@/lib/supabase';
 import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
-import { RadialBackground } from '@/components/radial-background';
 import {
   AudioModule,
   RecordingPresets,
@@ -8,6 +9,8 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
+import { decode as decodeBase64 } from 'base64-arraybuffer';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useFonts } from 'expo-font';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -78,6 +81,9 @@ export default function AudioEntryScreen() {
     Array.from({ length: NUM_BARS }, () => new Animated.Value(0.1))
   ).current;
 
+  // --Recording state--
+  const [saving, setSaving] = useState(false);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -146,6 +152,7 @@ export default function AudioEntryScreen() {
     timerRef.current = setInterval(() => setElapsedMs(ms => ms + 100), 100);
   }
 
+  /* OLD STOP RECORDING FUNCTION
   async function stopRecording() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     await audioRecorder.stop();
@@ -153,6 +160,67 @@ export default function AudioEntryScreen() {
     setElapsedMs(0);
     resetBars();
     // TODO: persist audioRecorder.uri when database layer is ready
+  }
+  */
+
+  async function stopRecording(){
+    // stop timer and finalize audio file
+    if (timerRef.current){
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    await audioRecorder.stop();
+
+    const durationSecounds = Math.round(elapsedMs / 1000);
+    const localUri = audioRecorder.uri;
+
+    //ui reset
+    setPhase('idle');
+    setElapsedMs(0);
+    resetBars();
+
+    //no file? bail out
+    if (!localUri) return;
+
+    setSaving(true);
+    try{
+      // get logged in user's id
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Read as base64 then decode with base64-arraybuffer (not atob) —
+      // atob in React Native's Hermes engine corrupts binary bytes above 127.
+      // base64-arraybuffer handles all byte values correctly.
+      const base64 = await FileSystem.readAsStringAsync(localUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const arrayBuffer = decodeBase64(base64);
+
+      // Unique storage path: {user_id}/{timestamp}.m4a
+      const storagePath = `${user.id}/${Date.now()}.m4a`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('audio')
+        .upload(storagePath, arrayBuffer, { contentType: 'audio/m4a', upsert: false });
+
+      if (uploadError) { console.error('Upload failed:', uploadError.message); return; }
+
+      // Store the storage path in audio_url (not a public URL — bucket is private).
+      // A signed URL is generated from this path when playback is implemented.
+      const { error: insertError} = await supabase
+        .from('audio_entries')
+        .insert({
+          user_id: user.id,
+          audio_url: storagePath,
+          duration_seconds: durationSecounds,
+          title: dateLabel,
+        });
+
+        if(insertError) { console.error('DB insert failed:', insertError.message); }
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleMainPress() {
@@ -217,6 +285,7 @@ export default function AudioEntryScreen() {
             ]}
             activeOpacity={0.75}
             onPress={handleMainPress}
+            disabled={saving}
           >
             {phase === 'idle' && <View style={styles.recordDot} />}
             {phase === 'recording' && <Ionicons name="pause" size={30} color="white" />}
@@ -229,6 +298,7 @@ export default function AudioEntryScreen() {
               style={styles.stopButton}
               activeOpacity={0.75}
               onPress={stopRecording}
+              disabled={saving}
             >
               <View style={styles.stopSquare} />
             </TouchableOpacity>
