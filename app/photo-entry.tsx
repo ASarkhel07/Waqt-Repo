@@ -1,9 +1,9 @@
 import { RadialBackground } from '@/components/radial-background';
 import { supabase } from '@/lib/supabase';
-import { decode } from 'base64-arraybuffer';
 import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
-import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
+import { decode } from 'base64-arraybuffer';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useFonts } from 'expo-font';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';

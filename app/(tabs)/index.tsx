@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -81,6 +81,27 @@ async function hasDaysEntries(year: number, month: number, day: number): Promise
   return (count ?? 0) > 0;
 }
 
+//Note: This area is referred to as the module level, outside the component.
+async function fetchYearEntries(userId: string): Promise<Map<string, NotePreview>> { 
+  const {data, error} = await supabase
+  .from('text_entry')
+  .select('entry_date, title, body')
+  .eq('user_id', userId)
+  .gte('entry_date', `${YEAR}-01-01`)
+  .lte('entry_date', `${YEAR}-12-31`);
+
+  if(error){
+    console.warn('fetchYearEntries error:', error.message);
+    return new Map();
+  }
+
+  const map = new Map<string, NotePreview>();
+  for(const row of data ?? []){
+    map.set(row.entry_date, {title: row.title, body: row.body});
+  }
+  return map;
+}
+
 // ─── Entry data ───────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,6 +111,11 @@ type EntryType =
   | { type: 'image'; title: string; imageSource: ImageSource }
   | { type: 'text'; text: string }
   | { type: 'none' };
+
+type NotePreview = {
+  title: string | null;
+  body: string | null;
+}
 
 // month (0-indexed) → day → entry
 const ENTRY_DATA: Record<number, Record<number, EntryType>> = {
@@ -118,6 +144,7 @@ interface DayItem {
   isToday: boolean;
   hasEntry: boolean;
   entry: EntryType;
+  isoDate: string;
 }
 
 type TimelineItem = DayItem;
@@ -149,6 +176,7 @@ function buildYearTimeline(
         isToday,
         hasEntry: !isToday && entry.type !== 'none',
         entry,
+        isoDate: toISODate(YEAR, month, day),
       });
     }
   }
@@ -213,11 +241,13 @@ function DayCard({
   isActive,
   onPress,
   todayHasEntry,
+  notePreview,
 }: {
   item: DayItem;
   isActive: boolean;
   onPress: () => void;
   todayHasEntry?: boolean;
+  notePreview?: NotePreview | null;
 }) {
   if (isActive) {
     return (
@@ -226,6 +256,31 @@ function DayCard({
   }
 
   if (item.isToday) {
+    // If a note was saved for today, show its preview instead of the generic "Memory saved!" card.
+    if (notePreview) {
+      return (
+        <TouchableOpacity style={styles.noteCard} activeOpacity={0.85} onPress={onPress}>
+          <Ionicons
+            name="create-outline"
+            size={16}
+            color="rgba(255,255,255,0.4)"
+            style={styles.noteCardIcon}
+          />
+          {notePreview.title ? (
+            <Text style={styles.noteCardTitle} numberOfLines={1}>
+              {notePreview.title}
+            </Text>
+          ) : (
+            <Text style={styles.noteCardNoTitle}>Untitled</Text>
+          )}
+          {notePreview.body ? (
+            <Text style={styles.noteCardBody} numberOfLines={2}>
+              {notePreview.body}
+            </Text>
+          ) : null}
+        </TouchableOpacity>
+      );
+    }
     const cardStyle = todayHasEntry ? styles.todayCardWithEntry : styles.todayCard;
     const iconColor = todayHasEntry ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.7)';
     const labelText = todayHasEntry ? 'Memory saved!' : 'Create a memory';
@@ -239,6 +294,33 @@ function DayCard({
   }
 
   const { entry } = item;
+
+  // Real Supabase entry — check this first so it takes priority over
+  // the hardcoded ENTRY_DATA (which has no entry for most days).
+  if (notePreview) {
+    return (
+      <TouchableOpacity style={styles.noteCard} activeOpacity={0.85} onPress={onPress}>
+        <Ionicons
+          name="create-outline"
+          size={16}
+          color="rgba(255,255,255,0.4)"
+          style={styles.noteCardIcon}
+        />
+        {notePreview.title ? (
+          <Text style={styles.noteCardTitle} numberOfLines={1}>
+            {notePreview.title}
+          </Text>
+        ) : (
+          <Text style={styles.noteCardNoTitle}>Untitled</Text>
+        )}
+        {notePreview.body ? (
+          <Text style={styles.noteCardBody} numberOfLines={2}>
+            {notePreview.body}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+    );
+  }
 
   if (entry.type === 'none') {
     return (
@@ -279,12 +361,14 @@ function DayRow({
   isActive,
   onPress,
   todayHasEntry,
+  notePreview,
 }: {
   item: DayItem;
   isLast: boolean;
   isActive: boolean;
   onPress: () => void;
   todayHasEntry?: boolean;
+  notePreview?: NotePreview | null;
 }) {
   const dotColor = item.hasEntry || item.isToday ? PEACH : GRAY_DOT;
   const lineColor = item.hasEntry || item.isToday ? PEACH : GRAY_LINE;
@@ -304,7 +388,7 @@ function DayRow({
       {/* Right content */}
       <View style={[styles.contentColumn, item.isToday && styles.todayContentColumn]}>
         <Text style={styles.dateLabel}>{item.dateLabel}</Text>
-        <DayCard item={item} isActive={isActive} onPress={onPress} todayHasEntry={todayHasEntry} />
+        <DayCard item={item} isActive={isActive} onPress={onPress} todayHasEntry={todayHasEntry} notePreview={notePreview} />
       </View>
     </View>
   );
@@ -316,6 +400,7 @@ export default function TimelineScreen() {
   const flatListRef = useRef<FlatList<TimelineItem>>(null);
   const [activeCard, setActiveCard] = useState<string | null>(null);
   const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold });
+  const [entryMap, setEntryMap] = useState<Map<string, NotePreview>>(new Map());
 
   // Compute today fresh every time the screen mounts so the "today" card
   // is never stale after midnight or after leaving the app open overnight.
@@ -349,6 +434,15 @@ export default function TimelineScreen() {
     return () => clearTimeout(timer);
   }, [fontsLoaded, todayIndex]);
 
+  useFocusEffect(
+    useCallback(() => {
+      supabase.auth.getUser().then(({data: {user}}) => {
+        if(!user) return;
+        fetchYearEntries(user.id).then(setEntryMap).catch(console.error);
+      });
+    }, [])
+  )
+
   const handleCardPress = useCallback((key: string) => {
     setActiveCard((prev) => (prev === key ? null : key));
   }, []);
@@ -362,16 +456,20 @@ export default function TimelineScreen() {
   );
 
   const renderItem: ListRenderItem<DayItem> = useCallback(
-    ({ item, index }) => (
-      <DayRow
-        item={item}
-        isLast={index === allItems.length - 1}
-        isActive={activeCard === item.key}
-        onPress={() => handleCardPress(item.key)}
-        todayHasEntry={item.isToday ? todayHasEntry : undefined}
-      />
-    ),
-    [allItems, activeCard, handleCardPress, todayHasEntry],
+    ({ item, index }) => {
+      const notePreview = entryMap.get(item.isoDate) ?? null;
+      return (
+        <DayRow
+          item={item}
+          isLast={index === allItems.length - 1}
+          isActive={activeCard === item.key}
+          onPress={() => handleCardPress(item.key)}
+          todayHasEntry={item.isToday ? todayHasEntry : undefined}
+          notePreview={notePreview}
+        />
+      );
+    },
+    [allItems, activeCard, handleCardPress, todayHasEntry, entryMap],
   );
 
   if (!fontsLoaded) return <View style={styles.container} />;
@@ -392,7 +490,7 @@ export default function TimelineScreen() {
           keyExtractor={(item) => item.key}
           renderItem={renderItem}
           getItemLayout={getItemLayout}
-          extraData={[activeCard, todayHasEntry]}
+          extraData={[activeCard, todayHasEntry, entryMap]}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScrollToIndexFailed={(info) => {
@@ -565,6 +663,37 @@ const styles = StyleSheet.create({
   forwardIcon: {
     position: 'absolute',
     right: 14,
+  },
+  //Note Preview Card Styles
+  noteCard: {
+    backgroundColor: 'rgba(40, 65, 129, 0.45)',
+    borderRadius: 28,
+    height: REGULAR_CARD_H,     // same height as all regular cards
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    justifyContent: 'flex-start',
+    gap: 4,
+  },
+  noteCardIcon: {
+    marginBottom: 2,
+  },
+  noteCardTitle: {
+    fontFamily: 'Cabin-Bold',
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  noteCardNoTitle: {
+    fontFamily: 'Cabin-Bold',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 18,
+    fontStyle: 'italic',
+  },
+  noteCardBody: {
+    fontFamily: 'Cabin-Regular',
+    color: 'rgba(255,255,255,0.50)',
+    fontSize: 13,
+    lineHeight: 19,
   },
 
   // ── Overlay (entry type picker) ──
