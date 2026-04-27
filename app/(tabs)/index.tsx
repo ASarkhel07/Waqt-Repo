@@ -102,6 +102,32 @@ async function fetchYearEntries(userId: string): Promise<Map<string, NotePreview
   return map;
 }
 
+//Function for images
+async function fetchYearEntriesImage(userId: string): Promise<Map<string, ImagePreview>>{
+  const {data, error} = await supabase
+  .from('image_entries')
+  .select('created_at, caption, image_url')
+  .eq('user_id', userId)
+  .gte('created_at', `${YEAR}-01-01`)
+  .lte('created_at', `${YEAR}-12-31`);
+
+  if(error){
+    console.warn('fetchYearEntriesImage error:', error.message);
+    return new Map();
+  }
+
+  const map = new Map<string, ImagePreview>();
+  for(const row of data ?? []){
+    // created_at is a full ISO timestamp ("2026-04-25T18:30:00Z").
+    // Slice the first 10 chars to get the "YYYY-MM-DD" date key that
+    // matches the isoDate field on each DayItem.
+    const dateKey = (row.created_at as string).slice(0, 10);
+    map.set(dateKey, {caption: row.caption, imageUrl: row.image_url});
+    console.log('[ImageMap]', dateKey, '→ image_url:', row.image_url ?? 'NULL');
+  }
+  return map;
+}
+
 // ─── Entry data ───────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,6 +141,11 @@ type EntryType =
 type NotePreview = {
   title: string | null;
   body: string | null;
+}
+
+type ImagePreview = {
+  caption: string | null;
+  imageUrl: string | null;
 }
 
 // month (0-indexed) → day → entry
@@ -242,12 +273,14 @@ function DayCard({
   onPress,
   todayHasEntry,
   notePreview,
+  imagePreview,
 }: {
   item: DayItem;
   isActive: boolean;
   onPress: () => void;
   todayHasEntry?: boolean;
   notePreview?: NotePreview | null;
+  imagePreview?: ImagePreview | null;
 }) {
   if (isActive) {
     return (
@@ -281,6 +314,37 @@ function DayCard({
         </TouchableOpacity>
       );
     }
+
+    //If an image was saved for today, shows its respective preview
+    if (imagePreview) {
+      return (
+        <TouchableOpacity style={styles.imageCard} activeOpacity={0.85} onPress={onPress}>
+          {imagePreview.imageUrl ? (
+            <Image
+              source={{ uri: imagePreview.imageUrl }}
+              style={styles.cardImage}
+              resizeMode="cover"
+              onError={(e) => console.warn('[Image] failed to load:', imagePreview.imageUrl, e.nativeEvent.error)}
+            />
+          ) : (
+            // imageUrl is null — the upload to Supabase Storage failed at save time.
+            <View style={styles.imageFallback}>
+              <Ionicons name="alert-circle-outline" size={28} color="rgba(255,255,255,0.4)" />
+            </View>
+          )}
+          <View style={styles.imageContentOverlay}>
+            <Ionicons name="camera-outline" size={22} color="white" />
+            {imagePreview.caption ? (
+              <Text style={styles.imageTitleText} numberOfLines={1}>
+                {imagePreview.caption}
+              </Text>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      );
+    }
+
+
     const cardStyle = todayHasEntry ? styles.todayCardWithEntry : styles.todayCard;
     const iconColor = todayHasEntry ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.7)';
     const labelText = todayHasEntry ? 'Memory saved!' : 'Create a memory';
@@ -295,8 +359,35 @@ function DayCard({
 
   const { entry } = item;
 
-  // Real Supabase entry — check this first so it takes priority over
-  // the hardcoded ENTRY_DATA (which has no entry for most days).
+  // Real Supabase image entry — show photo card with caption.
+  if (imagePreview) {
+    return (
+      <TouchableOpacity style={styles.imageCard} activeOpacity={0.85} onPress={onPress}>
+        {imagePreview.imageUrl ? (
+          <Image
+            source={{ uri: imagePreview.imageUrl }}
+            style={styles.cardImage}
+            resizeMode="cover"
+            onError={(e) => console.warn('[Image] failed to load:', imagePreview.imageUrl, e.nativeEvent.error)}
+          />
+        ) : (
+          <View style={styles.imageFallback}>
+            <Ionicons name="alert-circle-outline" size={28} color="rgba(255,255,255,0.4)" />
+          </View>
+        )}
+        <View style={styles.imageContentOverlay}>
+          <Ionicons name="camera-outline" size={22} color="white" />
+          {imagePreview.caption ? (
+            <Text style={styles.imageTitleText} numberOfLines={1}>
+              {imagePreview.caption}
+            </Text>
+          ) : null}
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  // Real Supabase text entry — check this before hardcoded ENTRY_DATA.
   if (notePreview) {
     return (
       <TouchableOpacity style={styles.noteCard} activeOpacity={0.85} onPress={onPress}>
@@ -362,6 +453,7 @@ function DayRow({
   onPress,
   todayHasEntry,
   notePreview,
+  imagePreview,
 }: {
   item: DayItem;
   isLast: boolean;
@@ -369,6 +461,7 @@ function DayRow({
   onPress: () => void;
   todayHasEntry?: boolean;
   notePreview?: NotePreview | null;
+  imagePreview?: ImagePreview | null;
 }) {
   const dotColor = item.hasEntry || item.isToday ? PEACH : GRAY_DOT;
   const lineColor = item.hasEntry || item.isToday ? PEACH : GRAY_LINE;
@@ -388,7 +481,7 @@ function DayRow({
       {/* Right content */}
       <View style={[styles.contentColumn, item.isToday && styles.todayContentColumn]}>
         <Text style={styles.dateLabel}>{item.dateLabel}</Text>
-        <DayCard item={item} isActive={isActive} onPress={onPress} todayHasEntry={todayHasEntry} notePreview={notePreview} />
+        <DayCard item={item} isActive={isActive} onPress={onPress} todayHasEntry={todayHasEntry} notePreview={notePreview} imagePreview={imagePreview} />
       </View>
     </View>
   );
@@ -401,6 +494,7 @@ export default function TimelineScreen() {
   const [activeCard, setActiveCard] = useState<string | null>(null);
   const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold });
   const [entryMap, setEntryMap] = useState<Map<string, NotePreview>>(new Map());
+  const [imageMap, setImageMap] = useState<Map<string, ImagePreview>>(new Map());
 
   // Compute today fresh every time the screen mounts so the "today" card
   // is never stale after midnight or after leaving the app open overnight.
@@ -443,6 +537,15 @@ export default function TimelineScreen() {
     }, [])
   )
 
+  useFocusEffect(
+    useCallback(() => {
+      supabase.auth.getUser().then(({data: {user}}) => {
+        if(!user) return;
+        fetchYearEntriesImage(user.id).then(setImageMap).catch(console.error);
+      });
+    }, [])
+  )
+
   const handleCardPress = useCallback((key: string) => {
     setActiveCard((prev) => (prev === key ? null : key));
   }, []);
@@ -458,6 +561,7 @@ export default function TimelineScreen() {
   const renderItem: ListRenderItem<DayItem> = useCallback(
     ({ item, index }) => {
       const notePreview = entryMap.get(item.isoDate) ?? null;
+      const imagePreview = imageMap.get(item.isoDate) ?? null;
       return (
         <DayRow
           item={item}
@@ -466,10 +570,11 @@ export default function TimelineScreen() {
           onPress={() => handleCardPress(item.key)}
           todayHasEntry={item.isToday ? todayHasEntry : undefined}
           notePreview={notePreview}
+          imagePreview={imagePreview}
         />
       );
     },
-    [allItems, activeCard, handleCardPress, todayHasEntry, entryMap],
+    [allItems, activeCard, handleCardPress, todayHasEntry, entryMap, imageMap],
   );
 
   if (!fontsLoaded) return <View style={styles.container} />;
@@ -490,7 +595,7 @@ export default function TimelineScreen() {
           keyExtractor={(item) => item.key}
           renderItem={renderItem}
           getItemLayout={getItemLayout}
-          extraData={[activeCard, todayHasEntry, entryMap]}
+          extraData={[activeCard, todayHasEntry, entryMap, imageMap]}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScrollToIndexFailed={(info) => {
@@ -629,6 +734,13 @@ const styles = StyleSheet.create({
   cardImage: {
     width: '100%',
     height: '100%',
+  },
+  imageFallback: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   imageContentOverlay: {
     position: 'absolute',
