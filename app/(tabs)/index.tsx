@@ -173,6 +173,7 @@ interface DayItem {
   month: number;
   dayNum: number;
   isToday: boolean;
+  isPast: boolean;
   hasEntry: boolean;
   entry: EntryType;
   isoDate: string;
@@ -205,6 +206,7 @@ function buildYearTimeline(
         month,
         dayNum: day,
         isToday,
+        isPast: day < todayDay,
         hasEntry: !isToday && entry.type !== 'none',
         entry,
         isoDate: toISODate(YEAR, month, day),
@@ -415,7 +417,7 @@ function DayCard({
 
   if (entry.type === 'none') {
     return (
-      <TouchableOpacity style={styles.emptyCard} activeOpacity={0.8} onPress={onPress}>
+      <TouchableOpacity style={styles.emptyCard} activeOpacity={0.8} onPress={onPress} disabled={true}>
         <Text style={styles.noMomentText}>No moment</Text>
       </TouchableOpacity>
     );
@@ -567,7 +569,7 @@ export default function TimelineScreen() {
           item={item}
           isLast={index === allItems.length - 1}
           isActive={activeCard === item.key}
-          onPress={() => handleCardPress(item.key)}
+          onPress={() => item.isPast ? {} : handleCardPress(item.key)}
           todayHasEntry={item.isToday ? todayHasEntry : undefined}
           notePreview={notePreview}
           imagePreview={imagePreview}
