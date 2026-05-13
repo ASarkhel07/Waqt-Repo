@@ -1,7 +1,7 @@
-import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
-import { Ionicons } from '@expo/vector-icons';
 import { RadialBackground } from '@/components/radial-background';
 import { supabase } from '@/lib/supabase';
+import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
+import { Ionicons } from '@expo/vector-icons';
 import { decode } from 'base64-arraybuffer';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useFonts } from 'expo-font';
@@ -10,19 +10,19 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActionSheetIOS,
-  Alert,
-  Animated,
-  Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActionSheetIOS,
+    Alert,
+    Animated,
+    Image,
+    Keyboard,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 

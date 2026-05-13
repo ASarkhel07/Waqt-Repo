@@ -25,11 +25,13 @@ function AuthGate({ session, initialized }: { session: Session | null; initializ
 
     const onAuthScreen = segments[0] === 'auth';
 
-    if (!session && !onAuthScreen) {
-      // Not logged in — send to the login screen
-      router.replace('/auth');
-    } else if (session && onAuthScreen) {
-      // Logged in — send into the app
+    // AUTH BYPASS: disabled for testing — re-enable before shipping
+    // if (!session && !onAuthScreen) {
+    //   router.replace('/auth');
+    // } else if (session && onAuthScreen) {
+    //   router.replace('/(tabs)');
+    // }
+    if (session && onAuthScreen) {
       router.replace('/(tabs)');
     }
   }, [session, segments, initialized]);
@@ -46,10 +48,10 @@ export default function RootLayout() {
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    // Read whatever session is already stored on device (fast, async-storage read)
+    // AUTH BYPASS: skip waiting on getSession so the app loads immediately
+    setInitialized(true);
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
-      setInitialized(true);
     });
 
     // Keep session in sync across the app's lifetime
