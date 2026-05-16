@@ -128,6 +128,40 @@ async function fetchYearEntriesImage(userId: string): Promise<Map<string, ImageP
   return map;
 }
 
+async function fetchYearEntriesAudio(userId: string): Promise<Map<string, AudioPreview>> {
+  const {data, error} = await supabase
+    .from('audio_entries')
+    .select('created_at, audio_url, duration_seconds, title') // created_at needed for date key
+    .eq('user_id', userId)
+    .gte('created_at', `${YEAR}-01-01`)
+    .lte('created_at', `${YEAR}-12-31`);
+
+  if (error) {
+    console.warn('fetchYearEntriesAudio error:', error.message);
+    return new Map();
+  }
+
+  const map = new Map<string, AudioPreview>();
+  for (const row of data ?? []) {
+    const dateKey = (row.created_at as string).slice(0, 10);
+    // Old entries stored a bare storage path; new entries store the full public URL.
+    // Normalise both so the player always receives a valid https:// URL.
+    const rawUrl: string = row.audio_url ?? '';
+    const audioUrl = rawUrl.startsWith('http')
+      ? rawUrl
+      : supabase.storage.from('audio').getPublicUrl(rawUrl).data.publicUrl;
+    map.set(dateKey, {
+      audioUrl,
+      durationSeconds: row.duration_seconds,
+      title: row.title,
+    });
+  }
+  if ((data ?? []).length === 0) {
+    console.log('[AudioMap] no rows returned — check audio_entries SELECT RLS policy');
+  }
+  return map;
+}
+
 // ─── Entry data ───────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,6 +180,12 @@ type NotePreview = {
 type ImagePreview = {
   caption: string | null;
   imageUrl: string | null;
+}
+
+type AudioPreview ={
+  audioUrl: string | null;
+  durationSeconds: number | null;
+  title: string | null;
 }
 
 // month (0-indexed) → day → entry
@@ -199,6 +239,11 @@ function buildYearTimeline(
         todayYear === YEAR && todayMonth === month && todayDay === day;
       const entry = isToday ? { type: 'none' as const } : getEntry(month, day);
 
+      // Compare full ISO date strings — handles month boundaries correctly.
+      // e.g. "2026-01-20" < "2026-05-16" → Jan 20 is correctly marked past in May.
+      const isoDate = toISODate(YEAR, month, day);
+      const todayIso = toISODate(todayYear, todayMonth, todayDay);
+
       items.push({
         type: 'day',
         key: `${month}-${day}`,
@@ -206,10 +251,10 @@ function buildYearTimeline(
         month,
         dayNum: day,
         isToday,
-        isPast: day < todayDay,
+        isPast: !isToday && isoDate < todayIso,
         hasEntry: !isToday && entry.type !== 'none',
         entry,
-        isoDate: toISODate(YEAR, month, day),
+        isoDate,
       });
     }
   }
@@ -225,6 +270,13 @@ function buildOffsets(items: DayItem[]): number[] {
     y += item.isToday ? TODAY_DAY_H : REGULAR_DAY_H;
   }
   return offsets;
+}
+
+//formatting the seconds for audio preview
+function formatSeconds(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 // ─── Entry icon overlay ───────────────────────────────────────────────────────
@@ -276,6 +328,7 @@ function DayCard({
   todayHasEntry,
   notePreview,
   imagePreview,
+  audioPreview,
 }: {
   item: DayItem;
   isActive: boolean;
@@ -283,6 +336,7 @@ function DayCard({
   todayHasEntry?: boolean;
   notePreview?: NotePreview | null;
   imagePreview?: ImagePreview | null;
+  audioPreview?: AudioPreview | null;
 }) {
   if (isActive) {
     return (
@@ -346,6 +400,22 @@ function DayCard({
       );
     }
 
+    if(audioPreview) {
+      return (
+        <TouchableOpacity style={styles.audioCard} activeOpacity={0.85} onPress={onPress}>
+          <Ionicons name="mic-outline" size={20} color={PEACH} />
+          <Text style={styles.audioCardTitle}>
+            {audioPreview.title ?? 'Voice note'}
+          </Text>
+          {audioPreview.durationSeconds ? (
+            <Text style={styles.audioCardDuration}>
+              {formatSeconds(audioPreview.durationSeconds)}
+            </Text>
+          ) : null}
+        </TouchableOpacity>
+      );
+    }
+
 
     const cardStyle = todayHasEntry ? styles.todayCardWithEntry : styles.todayCard;
     const iconColor = todayHasEntry ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.7)';
@@ -360,6 +430,23 @@ function DayCard({
   }
 
   const { entry } = item;
+
+  // Real Supabase audio entry — navigate directly to audio-entry for playback.
+  if (audioPreview) {
+    return (
+      <TouchableOpacity style={styles.audioCard} activeOpacity={0.85} onPress={onPress}>
+        <Ionicons name="mic-outline" size={20} color={PEACH} />
+        <Text style={styles.audioCardTitle}>
+          {audioPreview.title ?? 'Voice note'}
+        </Text>
+        {audioPreview.durationSeconds ? (
+          <Text style={styles.audioCardDuration}>
+            {formatSeconds(audioPreview.durationSeconds)}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+    );
+  }
 
   // Real Supabase image entry — show photo card with caption.
   if (imagePreview) {
@@ -456,6 +543,7 @@ function DayRow({
   todayHasEntry,
   notePreview,
   imagePreview,
+  audioPreview,
 }: {
   item: DayItem;
   isLast: boolean;
@@ -464,6 +552,7 @@ function DayRow({
   todayHasEntry?: boolean;
   notePreview?: NotePreview | null;
   imagePreview?: ImagePreview | null;
+  audioPreview?: AudioPreview | null;
 }) {
   const dotColor = item.hasEntry || item.isToday ? PEACH : GRAY_DOT;
   const lineColor = item.hasEntry || item.isToday ? PEACH : GRAY_LINE;
@@ -483,7 +572,15 @@ function DayRow({
       {/* Right content */}
       <View style={[styles.contentColumn, item.isToday && styles.todayContentColumn]}>
         <Text style={styles.dateLabel}>{item.dateLabel}</Text>
-        <DayCard item={item} isActive={isActive} onPress={onPress} todayHasEntry={todayHasEntry} notePreview={notePreview} imagePreview={imagePreview} />
+        <DayCard
+          item={item}
+          isActive={isActive}
+          onPress={onPress}
+          todayHasEntry={todayHasEntry}
+          notePreview={notePreview}
+          imagePreview={imagePreview}
+          audioPreview={audioPreview}
+        />
       </View>
     </View>
   );
@@ -497,6 +594,7 @@ export default function TimelineScreen() {
   const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold });
   const [entryMap, setEntryMap] = useState<Map<string, NotePreview>>(new Map());
   const [imageMap, setImageMap] = useState<Map<string, ImagePreview>>(new Map());
+  const [audioMap, setAudioMap] = useState<Map<string, AudioPreview>>(new Map());
 
   // Compute today fresh every time the screen mounts so the "today" card
   // is never stale after midnight or after leaving the app open overnight.
@@ -548,6 +646,15 @@ export default function TimelineScreen() {
     }, [])
   )
 
+  useFocusEffect(
+    useCallback(() => {
+      supabase.auth.getUser().then(({data: {user}}) => {
+        if(!user) return;
+        fetchYearEntriesAudio(user.id).then(setAudioMap).catch(console.error);
+      });
+    }, [])
+  )
+
   const handleCardPress = useCallback((key: string) => {
     setActiveCard((prev) => (prev === key ? null : key));
   }, []);
@@ -562,21 +669,33 @@ export default function TimelineScreen() {
 
   const renderItem: ListRenderItem<DayItem> = useCallback(
     ({ item, index }) => {
-      const notePreview = entryMap.get(item.isoDate) ?? null;
-      const imagePreview = imageMap.get(item.isoDate) ?? null;
+      const notePreview  = entryMap.get(item.isoDate)  ?? null;
+      const imagePreview = imageMap.get(item.isoDate)  ?? null;
+      const audioPreview = audioMap.get(item.isoDate)  ?? null;
+
+      // Audio cards navigate straight to audio-entry for playback instead of
+      // opening the overlay picker. All other cards use the standard overlay toggle.
+      const onPress = audioPreview?.audioUrl
+        ? () => router.push({
+            pathname: '/audio-entry' as any,
+            params: { date: item.dateLabel, audioUrl: audioPreview.audioUrl },
+          })
+        : () => { if (!item.isPast) handleCardPress(item.key); };
+
       return (
         <DayRow
           item={item}
           isLast={index === allItems.length - 1}
           isActive={activeCard === item.key}
-          onPress={() => item.isPast ? {} : handleCardPress(item.key)}
+          onPress={onPress}
           todayHasEntry={item.isToday ? todayHasEntry : undefined}
           notePreview={notePreview}
           imagePreview={imagePreview}
+          audioPreview={audioPreview}
         />
       );
     },
-    [allItems, activeCard, handleCardPress, todayHasEntry, entryMap, imageMap],
+    [allItems, activeCard, handleCardPress, todayHasEntry, entryMap, imageMap, audioMap],
   );
 
   if (!fontsLoaded) return <View style={styles.container} />;
@@ -597,7 +716,7 @@ export default function TimelineScreen() {
           keyExtractor={(item) => item.key}
           renderItem={renderItem}
           getItemLayout={getItemLayout}
-          extraData={[activeCard, todayHasEntry, entryMap, imageMap]}
+          extraData={[activeCard, todayHasEntry, entryMap, imageMap, audioMap]}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScrollToIndexFailed={(info) => {
@@ -808,6 +927,28 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.50)',
     fontSize: 13,
     lineHeight: 19,
+  },
+
+  // ── Audio preview card ──
+  audioCard: {
+    backgroundColor: 'rgba(80, 40, 120, 0.45)',
+    borderRadius: 28,
+    height: REGULAR_CARD_H,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    justifyContent: 'flex-start',
+    gap: 6,
+  },
+  audioCardTitle: {
+    fontFamily: 'Cabin-Bold',
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  audioCardDuration: {
+    fontFamily: 'Cabin-Regular',
+    color: PEACH,
+    fontSize: 13,
   },
 
   // ── Overlay (entry type picker) ──

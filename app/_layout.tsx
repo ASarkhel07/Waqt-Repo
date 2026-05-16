@@ -25,13 +25,9 @@ function AuthGate({ session, initialized }: { session: Session | null; initializ
 
     const onAuthScreen = segments[0] === 'auth';
 
-    // AUTH BYPASS: disabled for testing — re-enable before shipping
-    // if (!session && !onAuthScreen) {
-    //   router.replace('/auth');
-    // } else if (session && onAuthScreen) {
-    //   router.replace('/(tabs)');
-    // }
-    if (session && onAuthScreen) {
+    if (!session && !onAuthScreen) {
+      router.replace('/auth');
+    } else if (session && onAuthScreen) {
       router.replace('/(tabs)');
     }
   }, [session, segments, initialized]);
@@ -48,10 +44,11 @@ export default function RootLayout() {
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    // AUTH BYPASS: skip waiting on getSession so the app loads immediately
-    setInitialized(true);
+    // Wait for AsyncStorage to return the cached session before rendering.
+    // This prevents a flash-redirect to /auth for users who are already logged in.
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      setInitialized(true);
     });
 
     // Keep session in sync across the app's lifetime
