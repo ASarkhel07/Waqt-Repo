@@ -15,14 +15,21 @@ const ORANGE = '#F2A65A';  // accent text & icons
 
 // ─── Menu items ───────────────────────────────────────────────────────────────
 
-const MENU_ITEMS: {
+type MenuItem = {
   label: string;
-  icon?: keyof typeof Ionicons.glyphMap;
-}[] = [
+  icon: keyof typeof Ionicons.glyphMap;
+  children?: { label: string; icon: keyof typeof Ionicons.glyphMap }[];
+};
+
+const MENU_ITEMS: MenuItem[] = [
   { label: 'Stats', icon: 'bar-chart-outline' },
-  { label: 'Notifications', icon: 'notifications-outline' },
-  { label: 'Themes', icon: 'color-palette-outline' },
-  { label: 'Settings', icon: 'settings-outline' },
+  {
+    label: 'Settings',
+    icon: 'settings-outline',
+    children: [
+      { label: 'Notifications', icon: 'notifications-outline' },
+    ],
+  },
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -68,24 +75,20 @@ export default function ProfileScreen() {
 
         {/* ── Menu ── */}
         <View style={styles.menu}>
-          {MENU_ITEMS.map(({ label, icon }) => (
-            <TouchableOpacity
-              key={label}
-              style={[styles.menuRow, !!icon && styles.menuRowWithIcon]}
-              activeOpacity={0.65}
-            >
-              {icon && (
-                <Ionicons
-                  name={icon}
-                  size={40}
-                  color="rgba(255,255,255,0.85)"
-                  style={styles.menuIcon}
-                />
-              )}
-              <Text style={[styles.menuText, !icon && styles.menuTextIndented]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
+          {MENU_ITEMS.map(({ label, icon, children }) => (
+            <View key={label}>
+              <TouchableOpacity style={styles.menuRow} activeOpacity={0.65}>
+                <Ionicons name={icon} size={40} color="rgba(255,255,255,0.85)" style={styles.menuIcon} />
+                <Text style={styles.menuText}>{label}</Text>
+              </TouchableOpacity>
+
+              {children?.map((child) => (
+                <TouchableOpacity key={child.label} style={styles.subMenuRow} activeOpacity={0.65}>
+                  <Ionicons name={child.icon} size={26} color="rgba(255,255,255,0.55)" />
+                  <Text style={styles.subMenuText}>{child.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           ))}
 
           {/* ── Sign Out ── */}
@@ -147,22 +150,26 @@ const styles = StyleSheet.create({
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  menuRowWithIcon: {
     gap: 18,
   },
-  menuIcon: {
-    // icon sits to the left of Settings label
-  },
+  menuIcon: {},
   menuText: {
     fontFamily: 'Cabin-Bold',
     color: ORANGE,
     fontSize: 42,
     lineHeight: 50,
   },
-  // Non-icon rows are indented to align their text with the icon rows' text
-  menuTextIndented: {
-    marginLeft: 58, // icon (40) + gap (18) = 58
+  subMenuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 10,
+    marginLeft: 58, // aligns with parent label (icon 40 + gap 18)
+  },
+  subMenuText: {
+    fontFamily: 'Cabin-Bold',
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 22,
   },
   signOutText: {
     color: 'rgba(255,100,100,0.85)',

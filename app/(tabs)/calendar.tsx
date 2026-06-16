@@ -3,8 +3,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { LinearGradient } from 'expo-linear-gradient';
 import { RadialBackground } from '@/components/radial-background';
+import { supabase } from '@/lib/supabase';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     Dimensions,
     StyleSheet,
@@ -31,12 +33,20 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
+const SHORT_MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
 const DAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-// Known journal entries per month (0-indexed). Add more here as the user journals.
-const ENTRIES_BY_MONTH: Record<number, Set<number>> = {
-  1: new Set([4, 6, 10, 14, 18, 22]), // February
-};
+// ─── Entry types ───────────────────────────────────────────────────────────────
+
+type DayEntry =
+  | { type: 'text';  id: string; title: string | null; body: string | null; coverUrl: string | null }
+  | { type: 'image'; id: string; imageUrl: string | null; caption: string | null };
+
+// TEST BYPASS: fallback user ID when not signed in
+const TEST_USER_ID = 'test-user-00000000-0000-0000-0000-000000000000';
 
 // ─── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -81,34 +91,43 @@ function StarIndicator() {
 
 function DayCell({
   day,
-  colIndex,
-  entryDays,
+  entryMap,
   isToday,
+  isPast,
+  onPress,
 }: {
   day: number | null;
-  colIndex: number;
-  entryDays: Set<number>;
+  entryMap: Map<number, DayEntry>;
   isToday: boolean;
+  isPast: boolean;
+  onPress: () => void;
 }) {
-  const hasEntry = day !== null && entryDays.has(day);
+  const entry = day !== null ? entryMap.get(day) : undefined;
+  const hasEntry = entry !== undefined;
+  const tappable = (isPast || isToday) && hasEntry;
 
-  return (
-    <View style={styles.dayCell}>
-      {day !== null && (
-        <View style={styles.dayCellInner}>
-          <Text
-            style={[
-              styles.dayNumber,
-              hasEntry && styles.entryNumber,
-            ]}
-          >
-            {day}
-          </Text>
-          {isToday ? <StarIndicator /> : <View style={styles.starPlaceholder} />}
-        </View>
-      )}
+  const inner = day !== null ? (
+    <View style={styles.dayCellInner}>
+      <Text style={[styles.dayNumber, hasEntry && styles.entryNumber]}>
+        {day}
+      </Text>
+      {isToday
+        ? <StarIndicator />
+        : hasEntry
+          ? <View style={styles.entryDot} />
+          : <View style={styles.starPlaceholder} />}
     </View>
-  );
+  ) : null;
+
+  if (tappable) {
+    return (
+      <TouchableOpacity style={styles.dayCell} activeOpacity={0.6} onPress={onPress}>
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+
+  return <View style={styles.dayCell}>{inner}</View>;
 }
 
 // ─── Progress bar ──────────────────────────────────────────────────────────────
@@ -136,6 +155,40 @@ function ProgressBar({ entryCount, totalDays }: { entryCount: number; totalDays:
 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
+async function fetchEntryDaysForMonth(month: number, userId: string): Promise<Map<number, DayEntry>> {
+  const map = new Map<number, DayEntry>();
+  const startDate = `${YEAR}-${String(month + 1).padStart(2, '0')}-01`;
+  const endDate   = `${YEAR}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth(YEAR, month)).padStart(2, '0')}`;
+
+  const [{ data: textData }, { data: imageData }] = await Promise.all([
+    supabase
+      .from('text_entry')
+      .select('id, entry_date, title, body, cover_image_url')
+      .eq('user_id', userId)
+      .gte('entry_date', startDate)
+      .lte('entry_date', endDate),
+    supabase
+      .from('image_entries')
+      .select('id, created_at, image_url, caption')
+      .eq('user_id', userId)
+      .gte('created_at', `${startDate}T00:00:00.000Z`)
+      .lte('created_at', `${endDate}T23:59:59.999Z`),
+  ]);
+
+  // Text entries first
+  for (const row of textData ?? []) {
+    const day = parseInt((row.entry_date as string).slice(8, 10), 10);
+    map.set(day, { type: 'text', id: row.id, title: row.title, body: row.body, coverUrl: row.cover_image_url });
+  }
+  // Image entries override text entries for the same day (matches timeline priority)
+  for (const row of imageData ?? []) {
+    const day = parseInt((row.created_at as string).slice(8, 10), 10);
+    map.set(day, { type: 'image', id: row.id, imageUrl: row.image_url, caption: row.caption });
+  }
+
+  return map;
+}
+
 export default function CalendarScreen() {
   // Derive today once so we can highlight the current date cell
   const today = new Date();
@@ -145,11 +198,33 @@ export default function CalendarScreen() {
 
   // Default to the current month
   const [monthIndex, setMonthIndex] = useState(todayMonth);
+  const [entryMap, setEntryMap] = useState<Map<number, DayEntry>>(new Map());
 
   const [fontsLoaded] = useFonts({
     'Cabin-Bold': Cabin_700Bold,
     'Cabin-Regular': Cabin_400Regular,
   });
+
+  const loadEntries = useCallback((month: number) => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      const userId = user?.id ?? TEST_USER_ID;
+      fetchEntryDaysForMonth(month, userId)
+        .then(setEntryMap)
+        .catch(console.error);
+    });
+  }, []);
+
+  // Reload whenever the month changes
+  useEffect(() => {
+    loadEntries(monthIndex);
+  }, [monthIndex, loadEntries]);
+
+  // Reload whenever this tab comes into focus (picks up newly saved entries)
+  useFocusEffect(
+    useCallback(() => {
+      loadEntries(monthIndex);
+    }, [monthIndex, loadEntries]),
+  );
 
   if (!fontsLoaded) return <View style={styles.container} />;
 
@@ -158,10 +233,43 @@ export default function CalendarScreen() {
   const goForward = () => setMonthIndex((i) => (i === 11 ? 0 : i + 1));
 
   const totalDays = daysInMonth(YEAR, monthIndex);
-  const entryDays = ENTRIES_BY_MONTH[monthIndex] ?? new Set<number>();
-  const entryCount = entryDays.size;
+  const entryCount = entryMap.size;
   const weeks = buildCalendarWeeks(YEAR, monthIndex);
   const monthLabel = `${MONTH_NAMES[monthIndex]} ${YEAR}`;
+
+  function handleDayPress(day: number, isToday: boolean) {
+    const entry = entryMap.get(day);
+    if (!entry) return;
+    const dateLabel = `${SHORT_MONTHS[monthIndex]} ${day}`;
+    if (entry.type === 'image') {
+      router.push({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pathname: '/photo-entry' as any,
+        params: {
+          date:            dateLabel,
+          readOnly:        'true',
+          isToday:         isToday ? 'true' : 'false',
+          entryId:         entry.id,
+          prefillImageUrl: entry.imageUrl ?? '',
+          prefillCaption:  entry.caption  ?? '',
+        },
+      });
+    } else {
+      router.push({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pathname: '/note-entry' as any,
+        params: {
+          date:         dateLabel,
+          readOnly:     'true',
+          isToday:      isToday ? 'true' : 'false',
+          entryId:      entry.id,
+          prefillTitle: entry.title    ?? '',
+          prefillBody:  entry.body     ?? '',
+          prefillCover: entry.coverUrl ?? '',
+        },
+      });
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -219,13 +327,19 @@ export default function CalendarScreen() {
                     YEAR === todayYear &&
                     monthIndex === todayMonth &&
                     day === todayDay;
+                  const isPast =
+                    day !== null && (
+                      monthIndex < todayMonth ||
+                      (monthIndex === todayMonth && day < todayDay)
+                    );
                   return (
                     <DayCell
                       key={di}
                       day={day}
-                      colIndex={di}
-                      entryDays={entryDays}
+                      entryMap={entryMap}
                       isToday={isToday}
+                      isPast={isPast}
+                      onPress={() => day !== null && handleDayPress(day, isToday)}
                     />
                   );
                 })}
@@ -393,5 +507,11 @@ const styles = StyleSheet.create({
   },
   starPlaceholder: {
     height: 11,
+  },
+  entryDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: ORANGE,
   },
 });

@@ -82,16 +82,28 @@ async function requestAndPickFromCamera(): Promise<string | null> {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function PhotoEntryScreen() {
-  const { date } = useLocalSearchParams<{ date?: string }>();
+  const { date, readOnly, isToday, entryId, prefillImageUrl, prefillCaption } = useLocalSearchParams<{
+    date?: string;
+    readOnly?: string;
+    isToday?: string;
+    entryId?: string;
+    prefillImageUrl?: string;
+    prefillCaption?: string;
+  }>();
+  const isReadOnly   = readOnly === 'true';
+  const isTodayEntry = isToday  === 'true';
 
   const [fontsLoaded] = useFonts({
     'Cabin-Bold': Cabin_700Bold,
     'Cabin-Regular': Cabin_400Regular,
   });
 
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [caption, setCaption] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(prefillImageUrl || null);
+  const [caption, setCaption] = useState(prefillCaption ?? '');
+  const [saving,    setSaving]    = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const effectiveReadOnly = isReadOnly && !isEditing;
 
   // `date` is already formatted as "MMM D" (e.g. "Feb 4") from the timeline
   const dateLabel = typeof date === 'string' && date.length > 0 ? date : todayLabel();
@@ -122,34 +134,42 @@ export default function PhotoEntryScreen() {
 
   async function handleSave() {
     if (saving) return;
-    if (!photoUri) { //change to photo not caption
+    if (!photoUri) {
       Alert.alert('Nothing to save', 'Add a photo before saving.');
       return;
     }
 
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser(); //copy getUser method from note-entry
-      if (!user) {
-        Alert.alert('Login required', 'Please login to save your photo.');
-        return;
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      // TEST BYPASS: use a dummy ID when not signed in
+      const userId = user?.id ?? 'test-user-00000000-0000-0000-0000-000000000000';
 
-      let imageUrl: string | null = null;
-      if (photoUri) {
-        imageUrl = await uploadImageToSupabase(photoUri, user.id);
-      }
+      if (entryId && isEditing) {
+        // UPDATE existing entry — only re-upload if the user picked a new photo
+        let finalImageUrl: string | null = prefillImageUrl || null;
+        if (photoUri && photoUri !== (prefillImageUrl || null)) {
+          finalImageUrl = await uploadImageToSupabase(photoUri, userId);
+        }
 
-      const { error } = await supabase.from('image_entries').insert({
-        user_id: user.id,
-        created_at: new Date().toISOString(),
-        caption: caption.trim() || null,
-        image_url: imageUrl,
-      });
+        const { error } = await supabase.from('image_entries').update({
+          caption:   caption.trim() || null,
+          image_url: finalImageUrl,
+        }).eq('id', entryId);
 
-      if (error) {
-        Alert.alert('Save failed', error.message);
-        return;
+        if (error) { Alert.alert('Update failed', error.message); return; }
+      } else {
+        // INSERT new entry
+        const imageUrl = await uploadImageToSupabase(photoUri, userId);
+
+        const { error } = await supabase.from('image_entries').insert({
+          user_id:    userId,
+          created_at: new Date().toISOString(),
+          caption:    caption.trim() || null,
+          image_url:  imageUrl,
+        });
+
+        if (error) { Alert.alert('Save failed', error.message); return; }
       }
 
       router.back();
@@ -209,9 +229,22 @@ export default function PhotoEntryScreen() {
         {/* ── Date row ── */}
         <View style={styles.dateRow}>
           <Text style={styles.dateLabel}>{dateLabel}</Text>
-          <TouchableOpacity style={styles.checkButton} activeOpacity={0.75}>
-            <Ionicons name="checkmark" size={26} color="white" />
-          </TouchableOpacity>
+          {isReadOnly && isTodayEntry && !isEditing && (
+            <TouchableOpacity style={styles.editButton} onPress={() => setIsEditing(true)} activeOpacity={0.75}>
+              <Ionicons name="create-outline" size={20} color="white" />
+              <Text style={styles.editButtonText}>Edit</Text>
+            </TouchableOpacity>
+          )}
+          {!effectiveReadOnly && (
+            <TouchableOpacity
+              style={[styles.checkButton, saving && styles.checkButtonSaving]}
+              activeOpacity={0.75}
+              onPress={handleSave}
+              disabled={saving}
+            >
+              <Ionicons name="checkmark" size={26} color={saving ? 'rgba(255,255,255,0.4)' : 'white'} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* ── Scrollable content ── */}
@@ -220,14 +253,6 @@ export default function PhotoEntryScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={10}
         >
-        <TouchableOpacity
-          style={[styles.checkButton, saving && styles.checkButtonSaving]}
-          activeOpacity={0.75}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          <Ionicons name="checkmark" size={26} color={saving ? 'rgba(255,255,255,0.4)' : 'white'} />
-        </TouchableOpacity>
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
@@ -236,16 +261,19 @@ export default function PhotoEntryScreen() {
             {/* ── Photo area ── */}
             <TouchableOpacity
               style={styles.photoBox}
-              activeOpacity={0.85}
-              onPress={showPhotoOptions}
+              activeOpacity={effectiveReadOnly ? 1 : 0.85}
+              onPress={effectiveReadOnly ? undefined : showPhotoOptions}
+              disabled={effectiveReadOnly}
             >
               {photoUri ? (
                 <>
                   <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
-                  {/* Camera icon overlay for re-picking */}
-                  <View style={styles.cameraIconOverlay}>
-                    <Ionicons name="camera" size={22} color="white" />
-                  </View>
+                  {/* Camera icon overlay — hidden in read-only mode */}
+                  {!effectiveReadOnly && (
+                    <View style={styles.cameraIconOverlay}>
+                      <Ionicons name="camera" size={22} color="white" />
+                    </View>
+                  )}
                 </>
               ) : (
                 <View style={styles.photoPlaceholder}>
@@ -265,8 +293,11 @@ export default function PhotoEntryScreen() {
                 onChangeText={setCaption}
                 returnKeyType="done"
                 maxLength={100}
+                editable={!effectiveReadOnly}
               />
-              <Text style={styles.captionCounter}>{100 - caption.length}</Text>
+              {!effectiveReadOnly && (
+                <Text style={styles.captionCounter}>{100 - caption.length}</Text>
+              )}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -391,5 +422,20 @@ const styles = StyleSheet.create({
   },
   checkButtonSaving: {
     borderColor: 'rgba(255,255,255,0.2)',
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.55)',
+  },
+  editButtonText: {
+    fontFamily: 'Cabin-Regular',
+    color: 'white',
+    fontSize: 15,
   },
 });

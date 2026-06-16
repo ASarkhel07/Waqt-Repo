@@ -83,19 +83,32 @@ async function pickFromCamera(): Promise<string | null> {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function NoteEntryScreen() {
-  const { date } = useLocalSearchParams<{ date?: string }>();
+  const { date, readOnly, isToday, entryId, prefillTitle, prefillBody, prefillCover } = useLocalSearchParams<{
+    date?: string;
+    readOnly?: string;
+    isToday?: string;
+    entryId?: string;
+    prefillTitle?: string;
+    prefillBody?: string;
+    prefillCover?: string;
+  }>();
   const insets = useSafeAreaInsets();
+  const isReadOnly    = readOnly === 'true';
+  const isTodayEntry  = isToday  === 'true';
 
   const [fontsLoaded] = useFonts({
     'Cabin-Bold':    Cabin_700Bold,
     'Cabin-Regular': Cabin_400Regular,
   });
 
-  const [title,         setTitle]         = useState('');
-  const [body,          setBody]          = useState('');
-  const [coverUri,      setCoverUri]      = useState<string | null>(null);
+  const [title,         setTitle]         = useState(prefillTitle ?? '');
+  const [body,          setBody]          = useState(prefillBody  ?? '');
+  const [coverUri,      setCoverUri]      = useState<string | null>(prefillCover || null);
   const [isBodyFocused, setIsBodyFocused] = useState(false);
   const [saving,        setSaving]        = useState(false);
+  const [isEditing,     setIsEditing]     = useState(false);
+
+  const effectiveReadOnly = isReadOnly && !isEditing;
 
   const dateLabel = typeof date === 'string' && date.length > 0 ? date : todayLabel();
 
@@ -214,27 +227,41 @@ export default function NoteEntryScreen() {
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        Alert.alert('Not signed in', 'Please sign in to save entries.');
-        return;
-      }
+      // TEST BYPASS: use a dummy ID when not signed in
+      const userId = user?.id ?? 'test-user-00000000-0000-0000-0000-000000000000';
 
-      let coverImageUrl: string | null = null;
-      if (coverUri) {
-        coverImageUrl = await uploadCoverImage(coverUri, user.id);
-      }
+      if (entryId && isEditing) {
+        // UPDATE existing entry
+        let coverImageUrl: string | null = prefillCover || null;
+        if (coverUri && coverUri !== (prefillCover || null)) {
+          coverImageUrl = await uploadCoverImage(coverUri, userId);
+        } else if (!coverUri) {
+          coverImageUrl = null;
+        }
 
-      const { error } = await supabase.from('text_entry').insert({
-        user_id:          user.id,
-        title:            title.trim() || null,
-        body:             body.trim()  || null,
-        cover_image_url:  coverImageUrl,
-        entry_date:       localDateString(new Date()),
-      });
+        const { error } = await supabase.from('text_entry').update({
+          title:           title.trim() || null,
+          body:            body.trim()  || null,
+          cover_image_url: coverImageUrl,
+        }).eq('id', entryId);
 
-      if (error) {
-        Alert.alert('Save failed', error.message);
-        return;
+        if (error) { Alert.alert('Update failed', error.message); return; }
+      } else {
+        // INSERT new entry
+        let coverImageUrl: string | null = null;
+        if (coverUri) {
+          coverImageUrl = await uploadCoverImage(coverUri, userId);
+        }
+
+        const { error } = await supabase.from('text_entry').insert({
+          user_id:          userId,
+          title:            title.trim() || null,
+          body:             body.trim()  || null,
+          cover_image_url:  coverImageUrl,
+          entry_date:       localDateString(new Date()),
+        });
+
+        if (error) { Alert.alert('Save failed', error.message); return; }
       }
 
       router.back();
@@ -271,14 +298,22 @@ export default function NoteEntryScreen() {
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.checkButton, saving && styles.checkButtonSaving]}
-            activeOpacity={0.75}
-            onPress={handleSave}
-            disabled={saving}
-          >
-            <Ionicons name="checkmark" size={26} color={saving ? 'rgba(255,255,255,0.4)' : 'white'} />
-          </TouchableOpacity>
+          {isReadOnly && isTodayEntry && !isEditing && (
+            <TouchableOpacity style={styles.editButton} onPress={() => setIsEditing(true)} activeOpacity={0.75}>
+              <Ionicons name="create-outline" size={20} color="white" />
+              <Text style={styles.editButtonText}>Edit</Text>
+            </TouchableOpacity>
+          )}
+          {!effectiveReadOnly && (
+            <TouchableOpacity
+              style={[styles.checkButton, saving && styles.checkButtonSaving]}
+              activeOpacity={0.75}
+              onPress={handleSave}
+              disabled={saving}
+            >
+              <Ionicons name="checkmark" size={26} color={saving ? 'rgba(255,255,255,0.4)' : 'white'} />
+            </TouchableOpacity>
+          )}
         </Animated.View>
 
         {/* Title input — sits near the bottom of the hero */}
@@ -291,14 +326,16 @@ export default function NoteEntryScreen() {
             onChangeText={setTitle}
             returnKeyType="next"
             maxLength={60}
-            editable={!isBodyFocused}
+            editable={!isBodyFocused && !effectiveReadOnly}
           />
         </View>
 
-        {/* Camera icon — tap to set / change the optional cover image */}
-        <TouchableOpacity style={styles.cameraIcon} onPress={showCoverOptions} activeOpacity={0.75}>
-          <Ionicons name="camera-outline" size={26} color="rgba(255,255,255,0.75)" />
-        </TouchableOpacity>
+        {/* Camera icon — hidden in read-only mode */}
+        {!effectiveReadOnly && (
+          <TouchableOpacity style={styles.cameraIcon} onPress={showCoverOptions} activeOpacity={0.75}>
+            <Ionicons name="camera-outline" size={26} color="rgba(255,255,255,0.75)" />
+          </TouchableOpacity>
+        )}
 
       </Animated.View>
 
@@ -327,6 +364,7 @@ export default function NoteEntryScreen() {
             textAlignVertical="top"
             returnKeyType="default"
             scrollEnabled={false}
+            editable={!effectiveReadOnly}
           />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -386,6 +424,21 @@ const styles = StyleSheet.create({
   },
   checkButtonSaving: {
     borderColor: 'rgba(255,255,255,0.2)',
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.55)',
+  },
+  editButtonText: {
+    fontFamily: 'Cabin-Bold',
+    color: 'white',
+    fontSize: 15,
   },
   heroTextArea: {
     position: 'absolute',
