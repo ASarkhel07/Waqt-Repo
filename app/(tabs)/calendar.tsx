@@ -43,7 +43,8 @@ const DAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 type DayEntry =
   | { type: 'text';  id: string; title: string | null; body: string | null; coverUrl: string | null }
-  | { type: 'image'; id: string; imageUrl: string | null; caption: string | null };
+  | { type: 'image'; id: string; imageUrl: string | null; caption: string | null }
+  | { type: 'audio'; id: string; audioUrl: string | null; title: string | null };
 
 // TEST BYPASS: fallback user ID when not signed in
 const TEST_USER_ID = 'test-user-00000000-0000-0000-0000-000000000000';
@@ -160,7 +161,7 @@ async function fetchEntryDaysForMonth(month: number, userId: string): Promise<Ma
   const startDate = `${YEAR}-${String(month + 1).padStart(2, '0')}-01`;
   const endDate   = `${YEAR}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth(YEAR, month)).padStart(2, '0')}`;
 
-  const [{ data: textData }, { data: imageData }] = await Promise.all([
+  const [{ data: textData }, { data: imageData }, { data: audioData }] = await Promise.all([
     supabase
       .from('text_entry')
       .select('id, entry_date, title, body, cover_image_url')
@@ -170,6 +171,12 @@ async function fetchEntryDaysForMonth(month: number, userId: string): Promise<Ma
     supabase
       .from('image_entries')
       .select('id, created_at, image_url, caption')
+      .eq('user_id', userId)
+      .gte('created_at', `${startDate}T00:00:00.000Z`)
+      .lte('created_at', `${endDate}T23:59:59.999Z`),
+    supabase
+      .from('audio_entries')
+      .select('id, created_at, audio_url, title')
       .eq('user_id', userId)
       .gte('created_at', `${startDate}T00:00:00.000Z`)
       .lte('created_at', `${endDate}T23:59:59.999Z`),
@@ -184,6 +191,16 @@ async function fetchEntryDaysForMonth(month: number, userId: string): Promise<Ma
   for (const row of imageData ?? []) {
     const day = parseInt((row.created_at as string).slice(8, 10), 10);
     map.set(day, { type: 'image', id: row.id, imageUrl: row.image_url, caption: row.caption });
+  }
+  // Audio entries — only fill days that don't already have a text/image entry
+  for (const row of audioData ?? []) {
+    const day = parseInt((row.created_at as string).slice(8, 10), 10);
+    if (map.has(day)) continue;
+    const rawUrl: string = row.audio_url ?? '';
+    const audioUrl = rawUrl.startsWith('http')
+      ? rawUrl
+      : supabase.storage.from('audio').getPublicUrl(rawUrl).data.publicUrl;
+    map.set(day, { type: 'audio', id: row.id, audioUrl, title: row.title });
   }
 
   return map;
@@ -206,8 +223,8 @@ export default function CalendarScreen() {
   });
 
   const loadEntries = useCallback((month: number) => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      const userId = user?.id ?? TEST_USER_ID;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const userId = session?.user?.id ?? TEST_USER_ID;
       fetchEntryDaysForMonth(month, userId)
         .then(setEntryMap)
         .catch(console.error);
@@ -241,7 +258,16 @@ export default function CalendarScreen() {
     const entry = entryMap.get(day);
     if (!entry) return;
     const dateLabel = `${SHORT_MONTHS[monthIndex]} ${day}`;
-    if (entry.type === 'image') {
+    if (entry.type === 'audio') {
+      router.push({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pathname: '/audio-entry' as any,
+        params: {
+          date:     dateLabel,
+          audioUrl: entry.audioUrl ?? '',
+        },
+      });
+    } else if (entry.type === 'image') {
       router.push({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         pathname: '/photo-entry' as any,

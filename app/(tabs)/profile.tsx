@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
+import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -18,19 +19,19 @@ const ORANGE = '#F2A65A';  // accent text & icons
 type MenuItem = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
-  children?: { label: string; icon: keyof typeof Ionicons.glyphMap }[];
+  onPress?: () => void;
 };
 
-const MENU_ITEMS: MenuItem[] = [
-  { label: 'Stats', icon: 'bar-chart-outline' },
-  {
-    label: 'Settings',
-    icon: 'settings-outline',
-    children: [
-      { label: 'Notifications', icon: 'notifications-outline' },
-    ],
-  },
-];
+function buildMenuItems(): MenuItem[] {
+  return [
+    { label: 'Stats', icon: 'bar-chart-outline' },
+    {
+      label: 'Settings',
+      icon: 'settings-outline',
+      onPress: () => router.push('/settings' as any),
+    },
+  ];
+}
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -75,25 +76,22 @@ export default function ProfileScreen() {
 
         {/* ── Menu ── */}
         <View style={styles.menu}>
-          {MENU_ITEMS.map(({ label, icon, children }) => (
-            <View key={label}>
-              <TouchableOpacity style={styles.menuRow} activeOpacity={0.65}>
-                <Ionicons name={icon} size={40} color="rgba(255,255,255,0.85)" style={styles.menuIcon} />
-                <Text style={styles.menuText}>{label}</Text>
-              </TouchableOpacity>
-
-              {children?.map((child) => (
-                <TouchableOpacity key={child.label} style={styles.subMenuRow} activeOpacity={0.65}>
-                  <Ionicons name={child.icon} size={26} color="rgba(255,255,255,0.55)" />
-                  <Text style={styles.subMenuText}>{child.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+          {buildMenuItems().map(({ label, icon, onPress }) => (
+            <TouchableOpacity
+              key={label}
+              style={styles.menuRow}
+              activeOpacity={onPress ? 0.65 : 1}
+              onPress={onPress}
+              disabled={!onPress}
+            >
+              <Ionicons name={icon} size={40} color="rgba(255,255,255,0.85)" style={styles.menuIcon} />
+              <Text style={styles.menuText}>{label}</Text>
+            </TouchableOpacity>
           ))}
 
           {/* ── Sign Out ── */}
           <TouchableOpacity
-            style={[styles.menuRow, styles.menuRowWithIcon]}
+            style={styles.menuRow}
             activeOpacity={0.65}
             onPress={handleSignOut}
           >
@@ -158,18 +156,6 @@ const styles = StyleSheet.create({
     color: ORANGE,
     fontSize: 42,
     lineHeight: 50,
-  },
-  subMenuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 10,
-    marginLeft: 58, // aligns with parent label (icon 40 + gap 18)
-  },
-  subMenuText: {
-    fontFamily: 'Cabin-Bold',
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 22,
   },
   signOutText: {
     color: 'rgba(255,100,100,0.85)',

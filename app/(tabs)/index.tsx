@@ -85,7 +85,7 @@ async function hasDaysEntries(year: number, month: number, day: number): Promise
 async function fetchYearEntries(userId: string): Promise<Map<string, NotePreview>> { 
   const {data, error} = await supabase
   .from('text_entry')
-  .select('entry_date, title, body')
+  .select('id, entry_date, title, body, cover_image_url')
   .eq('user_id', userId)
   .gte('entry_date', `${YEAR}-01-01`)
   .lte('entry_date', `${YEAR}-12-31`);
@@ -97,7 +97,7 @@ async function fetchYearEntries(userId: string): Promise<Map<string, NotePreview
 
   const map = new Map<string, NotePreview>();
   for(const row of data ?? []){
-    map.set(row.entry_date, {title: row.title, body: row.body});
+    map.set(row.entry_date, {id: row.id, title: row.title, body: row.body, coverUrl: row.cover_image_url});
   }
   return map;
 }
@@ -106,7 +106,7 @@ async function fetchYearEntries(userId: string): Promise<Map<string, NotePreview
 async function fetchYearEntriesImage(userId: string): Promise<Map<string, ImagePreview>>{
   const {data, error} = await supabase
   .from('image_entries')
-  .select('created_at, caption, image_url')
+  .select('id, created_at, caption, image_url')
   .eq('user_id', userId)
   .gte('created_at', `${YEAR}-01-01`)
   .lte('created_at', `${YEAR}-12-31`);
@@ -122,8 +122,7 @@ async function fetchYearEntriesImage(userId: string): Promise<Map<string, ImageP
     // Slice the first 10 chars to get the "YYYY-MM-DD" date key that
     // matches the isoDate field on each DayItem.
     const dateKey = (row.created_at as string).slice(0, 10);
-    map.set(dateKey, {caption: row.caption, imageUrl: row.image_url});
-    console.log('[ImageMap]', dateKey, '→ image_url:', row.image_url ?? 'NULL');
+    map.set(dateKey, {id: row.id, caption: row.caption, imageUrl: row.image_url});
   }
   return map;
 }
@@ -173,11 +172,14 @@ type EntryType =
   | { type: 'none' };
 
 type NotePreview = {
+  id: string | null;
   title: string | null;
   body: string | null;
+  coverUrl: string | null;
 }
 
 type ImagePreview = {
+  id: string | null;
   caption: string | null;
   imageUrl: string | null;
 }
@@ -673,14 +675,47 @@ export default function TimelineScreen() {
       const imagePreview = imageMap.get(item.isoDate)  ?? null;
       const audioPreview = audioMap.get(item.isoDate)  ?? null;
 
-      // Audio cards navigate straight to audio-entry for playback instead of
-      // opening the overlay picker. All other cards use the standard overlay toggle.
-      const onPress = audioPreview?.audioUrl
-        ? () => router.push({
-            pathname: '/audio-entry' as any,
-            params: { date: item.dateLabel, audioUrl: audioPreview.audioUrl },
-          })
-        : () => { if (!item.isPast) handleCardPress(item.key); };
+      // Decide what tapping a card does:
+      //  • audio entry      → open audio-entry for playback
+      //  • text/image entry → open the entry screen (editable on today, view-only on past days)
+      //  • empty (no entry) → open the overlay picker to create one
+      let onPress: () => void;
+      if (audioPreview?.audioUrl) {
+        onPress = () => router.push({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pathname: '/audio-entry' as any,
+          params: { date: item.dateLabel, audioUrl: audioPreview.audioUrl },
+        });
+      } else if (notePreview) {
+        onPress = () => router.push({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pathname: '/note-entry' as any,
+          params: {
+            date:         item.dateLabel,
+            readOnly:     'true',
+            isToday:      item.isToday ? 'true' : 'false',
+            entryId:      notePreview.id ?? '',
+            prefillTitle: notePreview.title    ?? '',
+            prefillBody:  notePreview.body     ?? '',
+            prefillCover: notePreview.coverUrl ?? '',
+          },
+        });
+      } else if (imagePreview) {
+        onPress = () => router.push({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pathname: '/photo-entry' as any,
+          params: {
+            date:            item.dateLabel,
+            readOnly:        'true',
+            isToday:         item.isToday ? 'true' : 'false',
+            entryId:         imagePreview.id ?? '',
+            prefillImageUrl: imagePreview.imageUrl ?? '',
+            prefillCaption:  imagePreview.caption  ?? '',
+          },
+        });
+      } else {
+        onPress = () => { if (!item.isPast) handleCardPress(item.key); };
+      }
 
       return (
         <DayRow
