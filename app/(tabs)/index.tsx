@@ -546,6 +546,7 @@ function DayRow({
   notePreview,
   imagePreview,
   audioPreview,
+  hasRealEntry,
 }: {
   item: DayItem;
   isLast: boolean;
@@ -555,9 +556,12 @@ function DayRow({
   notePreview?: NotePreview | null;
   imagePreview?: ImagePreview | null;
   audioPreview?: AudioPreview | null;
+  hasRealEntry: boolean;
 }) {
-  const dotColor = item.hasEntry || item.isToday ? PEACH : GRAY_DOT;
-  const lineColor = item.hasEntry || item.isToday ? PEACH : GRAY_LINE;
+
+  //The line and dot color change to peach if there is an entry for the day
+  const dotColor = item.hasEntry || item.isToday || hasRealEntry ? PEACH : GRAY_DOT;
+  const lineColor = item.hasEntry || item.isToday || hasRealEntry ? PEACH : GRAY_LINE;
 
   return (
     <View style={[styles.dayRow, item.isToday && styles.todayRow]}>
@@ -674,6 +678,7 @@ export default function TimelineScreen() {
       const notePreview  = entryMap.get(item.isoDate)  ?? null;
       const imagePreview = imageMap.get(item.isoDate)  ?? null;
       const audioPreview = audioMap.get(item.isoDate)  ?? null;
+      const hasRealEntry = notePreview !== null || imagePreview !== null || audioPreview !== null;
 
       // Decide what tapping a card does:
       //  • audio entry      → open audio-entry for playback
@@ -727,6 +732,7 @@ export default function TimelineScreen() {
           notePreview={notePreview}
           imagePreview={imagePreview}
           audioPreview={audioPreview}
+          hasRealEntry={hasRealEntry} //Come back to check this
         />
       );
     },

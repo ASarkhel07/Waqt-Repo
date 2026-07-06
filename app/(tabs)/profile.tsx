@@ -3,9 +3,9 @@ import { supabase } from '@/lib/supabase';
 import { Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -39,21 +39,22 @@ export default function ProfileScreen() {
   const [fontsLoaded] = useFonts({ 'Cabin-Bold': Cabin_700Bold, ...Ionicons.font });
   const [fullName, setFullName] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchProfile() {
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user ?? null;
-      if (!user) return;
-      const { data } = await supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', user.id)
-        .single();
-      // Use saved name, or fall back to the part of the email before @
-      setFullName(data?.full_name ?? user.email?.split('@')[0] ?? null);
-    }
-    fetchProfile();
+  const fetchProfile = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
+    if (!user) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .single();
+    // Use saved name, or fall back to the part of the email before @
+    setFullName(data?.full_name ?? user.email?.split('@')[0] ?? null);
   }, []);
+
+  useFocusEffect(useCallback(() => {
+    fetchProfile();
+  }, [fetchProfile]));
 
   async function handleSignOut() {
     await supabase.auth.signOut();
