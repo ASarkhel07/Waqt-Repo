@@ -40,7 +40,13 @@
           }
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Waqt uses Face ID to unlock the app and protect your journal."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

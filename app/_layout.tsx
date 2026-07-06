@@ -11,6 +11,8 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/lib/supabase';
+import { useBiometricUnlock } from '@/hooks/use-biometric-unlock';
+import { BiometricLockScreen } from '@/components/biometric-lock-screen';
 
 // ─── Auth guard ───────────────────────────────────────────────────────────────
 // Watches the Supabase session and redirects between /auth and /(tabs).
@@ -42,6 +44,8 @@ export default function RootLayout() {
 
   const [session,     setSession]     = useState<Session | null>(null);
   const [initialized, setInitialized] = useState(false);
+
+  const biometric = useBiometricUnlock({ session, initialized });
 
   useEffect(() => {
     // Wait for AsyncStorage to return the cached session before rendering.
@@ -78,6 +82,16 @@ export default function RootLayout() {
 
       {/* Rendered inside the Stack so useSegments/useRouter work correctly */}
       <AuthGate session={session} initialized={initialized} />
+
+      {biometric.shouldShowLock && (
+        <BiometricLockScreen
+          label={biometric.biometricLabel}
+          error={biometric.lastError}
+          isAuthenticating={biometric.isAuthenticating}
+          onTryAgain={biometric.tryAgain}
+          onSignOut={() => supabase.auth.signOut()}
+        />
+      )}
 
       <StatusBar style="light" />
     </ThemeProvider>

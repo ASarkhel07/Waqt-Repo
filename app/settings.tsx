@@ -1,4 +1,6 @@
 import { RadialBackground } from '@/components/radial-background';
+import { getBiometricUnlockEnabled, setBiometricUnlockEnabled } from '@/lib/biometric-preference';
+import { checkBiometricSupport, getBiometricLabel, promptBiometricAuth } from '@/lib/local-authentication';
 import { supabase } from '@/lib/supabase';
 import { Cabin_400Regular, Cabin_700Bold } from '@expo-google-fonts/cabin';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -38,6 +41,12 @@ export default function SettingsScreen() {
   const [dailyReminder,   setDailyReminder]   = useState(false);
   const [weeklyDigest,    setWeeklyDigest]    = useState(false);
 
+  // ── Biometric / Security state ──
+  const [biometricEnabled,   setBiometricEnabled]   = useState(false);
+  const [biometricLabel,     setBiometricLabel]     = useState('Biometric unlock');
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricEnrolled,  setBiometricEnrolled]  = useState(false);
+
   // ── Display name state ──
   const [displayName,   setDisplayName]   = useState('');
   const [initialName,   setInitialName]   = useState<string | null>(null);
@@ -46,6 +55,43 @@ export default function SettingsScreen() {
   const [saving,        setSaving]        = useState(false);
   const [error,         setError]         = useState<string | null>(null);
   const [success,       setSuccess]       = useState<string | null>(null);
+
+  // ── Load biometric settings on mount ──
+  useEffect(() => {
+    async function loadBiometric() {
+      const [enabled, label, support] = await Promise.all([
+        getBiometricUnlockEnabled(),
+        getBiometricLabel(),
+        checkBiometricSupport(),
+      ]);
+      setBiometricEnabled(enabled);
+      setBiometricLabel(label);
+      setBiometricSupported(support.supported);
+      setBiometricEnrolled(support.enrolled);
+    }
+    loadBiometric();
+  }, []);
+
+  // ── Handle biometric toggle ──
+  const handleBiometricToggle = useCallback(async (value: boolean) => {
+    if (!value) {
+      await setBiometricUnlockEnabled(false);
+      setBiometricEnabled(false);
+      return;
+    }
+    if (!biometricEnrolled) {
+      Alert.alert(
+        'No biometrics enrolled',
+        `Please set up ${biometricLabel} in your device settings first.`,
+      );
+      return;
+    }
+    const result = await promptBiometricAuth(`Enable ${biometricLabel} for Waqt`);
+    if (result.success) {
+      await setBiometricUnlockEnabled(true);
+      setBiometricEnabled(true);
+    }
+  }, [biometricEnrolled, biometricLabel]);
 
   // ── Fetch profile on mount ──
   useEffect(() => {
@@ -198,6 +244,36 @@ export default function SettingsScreen() {
               )}
             </View>
 
+            {/* ── Security section ── */}
+            <View style={[styles.section, { marginBottom: 16 }]}>
+              <Text style={styles.sectionTitle}>Security</Text>
+
+              <View style={styles.row}>
+                <View style={styles.rowLeft}>
+                  <Ionicons name="lock-closed-outline" size={24} color={ORANGE} />
+                  <Text style={styles.rowLabel}>{biometricLabel}</Text>
+                </View>
+                <Switch
+                  value={biometricEnabled}
+                  onValueChange={handleBiometricToggle}
+                  trackColor={{ false: 'rgba(255,255,255,0.15)', true: ORANGE }}
+                  thumbColor="white"
+                  disabled={!biometricSupported}
+                />
+              </View>
+
+              {!biometricSupported && (
+                <Text style={styles.helperText}>
+                  Biometric authentication is not available on this device.
+                </Text>
+              )}
+              {biometricSupported && !biometricEnrolled && (
+                <Text style={styles.helperText}>
+                  No biometrics enrolled. Set up {biometricLabel} in device settings to enable this.
+                </Text>
+              )}
+            </View>
+
             {/* ── Notifications section ── */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Notifications</Text>
@@ -340,6 +416,16 @@ const styles = StyleSheet.create({
     fontFamily: 'Cabin-Bold',
     color: 'white',
     fontSize: 16,
+  },
+
+  // ── Helper text ──
+  helperText: {
+    fontFamily: 'Cabin-Regular',
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    marginTop: 4,
+    marginBottom: 6,
+    lineHeight: 17,
   },
 
   // ── Feedback ──
